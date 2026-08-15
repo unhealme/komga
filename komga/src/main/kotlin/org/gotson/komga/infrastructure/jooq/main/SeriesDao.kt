@@ -6,7 +6,6 @@ import org.gotson.komga.domain.model.Series
 import org.gotson.komga.domain.persistence.SeriesRepository
 import org.gotson.komga.infrastructure.jooq.RequiredJoin
 import org.gotson.komga.infrastructure.jooq.SeriesSearchHelper
-import org.gotson.komga.infrastructure.jooq.SplitDslDaoBase
 import org.gotson.komga.infrastructure.jooq.TempTable.Companion.withTempTable
 import org.gotson.komga.infrastructure.jooq.csAlias
 import org.gotson.komga.jooq.main.Tables
@@ -14,7 +13,6 @@ import org.gotson.komga.jooq.main.tables.records.SeriesRecord
 import org.gotson.komga.language.toCurrentTimeZone
 import org.jooq.DSLContext
 import org.jooq.impl.DSL
-import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.PageImpl
@@ -29,31 +27,29 @@ import java.time.ZoneId
 
 @Component
 class SeriesDao(
-  dslRW: DSLContext,
-  @Qualifier("dslContextRO") dslRO: DSLContext,
+  val dslContext: DSLContext,
   @param:Value("#{@komgaProperties.database.batchChunkSize}") private val batchSize: Int,
-) : SplitDslDaoBase(dslRW, dslRO),
-  SeriesRepository {
+) : SeriesRepository {
   private val s = Tables.SERIES
   private val d = Tables.SERIES_METADATA
   private val rs = Tables.READ_PROGRESS_SERIES
   private val bma = Tables.BOOK_METADATA_AGGREGATION
 
   override fun findAll(): Collection<Series> =
-    dslRO
+    dslContext
       .selectFrom(s)
       .fetchInto(s)
       .map { it.toDomain() }
 
   override fun findByIdOrNull(seriesId: String): Series? =
-    dslRO
+    dslContext
       .selectFrom(s)
       .where(s.ID.eq(seriesId))
       .fetchOneInto(s)
       ?.toDomain()
 
   override fun findAllByLibraryId(libraryId: String): List<Series> =
-    dslRO
+    dslContext
       .selectFrom(s)
       .where(s.LIBRARY_ID.eq(libraryId))
       .fetchInto(s)
@@ -64,8 +60,8 @@ class SeriesDao(
     libraryId: String,
     urls: Collection<URL>,
   ): List<Series> {
-    dslRO.withTempTable(batchSize, urls.map { it.toString() }).use { tempTable ->
-      return dslRO
+    return dslContext.withTempTable(batchSize, urls.map { it.toString() }) { tempTable, dslContext ->
+      dslContext
         .selectFrom(s)
         .where(s.LIBRARY_ID.eq(libraryId))
         .and(s.DELETED_DATE.isNull)
@@ -79,7 +75,7 @@ class SeriesDao(
     libraryId: String,
     url: URL,
   ): Series? =
-    dslRO
+    dslContext
       .selectFrom(s)
       .where(s.LIBRARY_ID.eq(libraryId).and(s.URL.eq(url.toString())))
       .and(s.DELETED_DATE.isNull)
@@ -89,7 +85,7 @@ class SeriesDao(
       ?.toDomain()
 
   override fun findAllByTitleContaining(title: String): Collection<Series> =
-    dslRO
+    dslContext
       .selectDistinct(*s.fields())
       .from(s)
       .leftJoin(d)
@@ -99,14 +95,14 @@ class SeriesDao(
       .map { it.toDomain() }
 
   override fun getLibraryId(seriesId: String): String? =
-    dslRO
+    dslContext
       .select(s.LIBRARY_ID)
       .from(s)
       .where(s.ID.eq(seriesId))
       .fetchOne(0, String::class.java)
 
   override fun findAllIdsByLibraryId(libraryId: String): Collection<String> =
-    dslRO
+    dslContext
       .select(s.ID)
       .from(s)
       .where(s.LIBRARY_ID.eq(libraryId))
@@ -120,7 +116,7 @@ class SeriesDao(
     val (conditions, joins) = SeriesSearchHelper(searchContext).toCondition(searchCondition)
 
     val query =
-      dslRO
+      dslContext
         .selectDistinct(*s.fields())
         .from(s)
         .apply {
@@ -141,7 +137,7 @@ class SeriesDao(
           }
         }.where(conditions)
 
-    val count = dslRO.fetchCount(query)
+    val count = dslContext.fetchCount(query)
 
     val items =
       query
@@ -160,7 +156,7 @@ class SeriesDao(
   }
 
   override fun insert(series: Series) {
-    dslRW
+    dslContext
       .insertInto(s)
       .set(s.ID, series.id)
       .set(s.NAME, series.name)
@@ -176,7 +172,7 @@ class SeriesDao(
     series: Series,
     updateModifiedTime: Boolean,
   ) {
-    dslRW
+    dslContext
       .update(s)
       .set(s.NAME, series.name)
       .set(s.URL, series.url.toString())
@@ -191,24 +187,24 @@ class SeriesDao(
   }
 
   override fun delete(seriesId: String) {
-    dslRW.deleteFrom(s).where(s.ID.eq(seriesId)).execute()
+    dslContext.deleteFrom(s).where(s.ID.eq(seriesId)).execute()
   }
 
   override fun deleteAll() {
-    dslRW.deleteFrom(s).execute()
+    dslContext.deleteFrom(s).execute()
   }
 
   @Transactional
   override fun delete(seriesIds: Collection<String>) {
-    dslRW.withTempTable(batchSize, seriesIds).use {
-      dslRW.deleteFrom(s).where(s.ID.`in`(it.selectTempStrings())).execute()
+    dslContext.withTempTable(batchSize, seriesIds) { it, dslContext ->
+      dslContext.deleteFrom(s).where(s.ID.`in`(it.selectTempStrings())).execute()
     }
   }
 
-  override fun count(): Long = dslRO.fetchCount(s).toLong()
+  override fun count(): Long = dslContext.fetchCount(s).toLong()
 
   override fun countGroupedByLibraryId(): Map<String, Int> =
-    dslRO
+    dslContext
       .select(s.LIBRARY_ID, DSL.count(s.ID))
       .from(s)
       .groupBy(s.LIBRARY_ID)

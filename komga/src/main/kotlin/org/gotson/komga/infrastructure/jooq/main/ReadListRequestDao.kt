@@ -5,7 +5,6 @@ import org.gotson.komga.domain.model.ReadListRequestBookMatchBook
 import org.gotson.komga.domain.model.ReadListRequestBookMatchSeries
 import org.gotson.komga.domain.model.ReadListRequestBookMatches
 import org.gotson.komga.domain.persistence.ReadListRequestRepository
-import org.gotson.komga.infrastructure.jooq.SplitDslDaoBase
 import org.gotson.komga.infrastructure.jooq.noCase
 import org.gotson.komga.jooq.main.Tables
 import org.jooq.DSLContext
@@ -13,16 +12,13 @@ import org.jooq.impl.DSL.ltrim
 import org.jooq.impl.DSL.row
 import org.jooq.impl.DSL.value
 import org.jooq.impl.DSL.values
-import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.stereotype.Component
 import java.time.LocalDate
 
 @Component
 class ReadListRequestDao(
-  dslRW: DSLContext,
-  @Qualifier("dslContextRO") dslRO: DSLContext,
-) : SplitDslDaoBase(dslRW, dslRO),
-  ReadListRequestRepository {
+  val dslContext: DSLContext,
+) : ReadListRequestRepository {
   private val sd = Tables.SERIES_METADATA
   private val b = Tables.BOOK
   private val bd = Tables.BOOK_METADATA
@@ -36,7 +32,7 @@ class ReadListRequestDao(
     val numberField = "number"
     val requestsTable = values(*requestsAsRows.toTypedArray()).`as`("request", indexField, seriesField, numberField)
     val matchedRequests =
-      dslRO
+      dslContext
         .select(
           requestsTable.field(indexField, Int::class.java),
           sd.SERIES_ID,

@@ -9,7 +9,6 @@ import org.gotson.komga.domain.model.MediaExtension
 import org.gotson.komga.domain.model.MediaFile
 import org.gotson.komga.domain.model.ProxyExtension
 import org.gotson.komga.domain.persistence.MediaRepository
-import org.gotson.komga.infrastructure.jooq.SplitDslDaoBase
 import org.gotson.komga.infrastructure.jooq.TempTable.Companion.withTempTable
 import org.gotson.komga.infrastructure.jooq.deserializeMediaExtension
 import org.gotson.komga.infrastructure.jooq.serializeJsonGz
@@ -20,7 +19,6 @@ import org.gotson.komga.jooq.main.tables.records.MediaRecord
 import org.gotson.komga.language.toCurrentTimeZone
 import org.jooq.DSLContext
 import org.jooq.impl.DSL
-import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
@@ -31,12 +29,10 @@ private val logger = KotlinLogging.logger {}
 
 @Component
 class MediaDao(
-  dslRW: DSLContext,
-  @Qualifier("dslContextRO") dslRO: DSLContext,
+  val dslContext: DSLContext,
   @param:Value("#{@komgaProperties.database.batchChunkSize}") private val batchSize: Int,
   private val mapper: ObjectMapper,
-) : SplitDslDaoBase(dslRW, dslRO),
-  MediaRepository {
+) : MediaRepository {
   private val m = Tables.MEDIA
   private val p = Tables.MEDIA_PAGE
   private val f = Tables.MEDIA_FILE
@@ -57,12 +53,12 @@ class MediaDao(
       *p.fields(),
     )
 
-  override fun findById(bookId: String): Media = dslRO.find(bookId)!!
+  override fun findById(bookId: String): Media = dslContext.find(bookId)!!
 
-  override fun findByIdOrNull(bookId: String): Media? = dslRO.find(bookId)
+  override fun findByIdOrNull(bookId: String): Media? = dslContext.find(bookId)
 
   override fun findExtensionByIdOrNull(bookId: String): MediaExtension? =
-    dslRO
+    dslContext
       .select(m.EXTENSION_CLASS, m.EXTENSION_VALUE_BLOB)
       .from(m)
       .where(m.BOOK_ID.eq(bookId))
@@ -79,7 +75,7 @@ class MediaDao(
     val neededHash = pageHashing * 2
     val neededHashForBook = DSL.`when`(pagesCount.lt(neededHash), pagesCount).otherwise(neededHash)
 
-    return dslRO
+    return dslContext
       .select(b.ID)
       .from(b)
       .leftJoin(p)
@@ -96,7 +92,7 @@ class MediaDao(
   }
 
   override fun getPagesSizes(bookIds: Collection<String>): Collection<Pair<String, Int>> =
-    dslRO
+    dslContext
       .select(m.BOOK_ID, m.PAGE_COUNT)
       .from(m)
       .where(m.BOOK_ID.`in`(bookIds))
@@ -136,9 +132,9 @@ class MediaDao(
   override fun insert(medias: Collection<Media>) {
     if (medias.isNotEmpty()) {
       medias.chunked(batchSize).forEach { chunk ->
-        dslRW
+        dslContext
           .batch(
-            dslRW
+            dslContext
               .insertInto(
                 m,
                 m.BOOK_ID,
@@ -175,8 +171,8 @@ class MediaDao(
           }.execute()
       }
 
-      dslRW.insertPages(medias)
-      dslRW.insertFiles(medias)
+      dslContext.insertPages(medias)
+      dslContext.insertFiles(medias)
     }
   }
 
@@ -250,7 +246,7 @@ class MediaDao(
 
   @Transactional
   override fun update(media: Media) {
-    dslRW
+    dslContext
       .update(m)
       .set(m.STATUS, media.status.toString())
       .set(m.MEDIA_TYPE, media.mediaType)
@@ -271,18 +267,18 @@ class MediaDao(
       .where(m.BOOK_ID.eq(media.bookId))
       .execute()
 
-    dslRW
+    dslContext
       .deleteFrom(p)
       .where(p.BOOK_ID.eq(media.bookId))
       .execute()
 
-    dslRW
+    dslContext
       .deleteFrom(f)
       .where(f.BOOK_ID.eq(media.bookId))
       .execute()
 
-    dslRW.insertPages(listOf(media))
-    dslRW.insertFiles(listOf(media))
+    dslContext.insertPages(listOf(media))
+    dslContext.insertFiles(listOf(media))
   }
 
   @Transactional
@@ -299,21 +295,21 @@ class MediaDao(
 
   @Transactional
   override fun delete(bookId: String) {
-    dslRW.deleteFrom(p).where(p.BOOK_ID.eq(bookId)).execute()
-    dslRW.deleteFrom(f).where(f.BOOK_ID.eq(bookId)).execute()
-    dslRW.deleteFrom(m).where(m.BOOK_ID.eq(bookId)).execute()
+    dslContext.deleteFrom(p).where(p.BOOK_ID.eq(bookId)).execute()
+    dslContext.deleteFrom(f).where(f.BOOK_ID.eq(bookId)).execute()
+    dslContext.deleteFrom(m).where(m.BOOK_ID.eq(bookId)).execute()
   }
 
   @Transactional
   override fun delete(bookIds: Collection<String>) {
-    dslRW.withTempTable(batchSize, bookIds).use {
-      dslRW.deleteFrom(p).where(p.BOOK_ID.`in`(it.selectTempStrings())).execute()
-      dslRW.deleteFrom(f).where(f.BOOK_ID.`in`(it.selectTempStrings())).execute()
-      dslRW.deleteFrom(m).where(m.BOOK_ID.`in`(it.selectTempStrings())).execute()
+    dslContext.withTempTable(batchSize, bookIds) { it, dslContext ->
+      dslContext.deleteFrom(p).where(p.BOOK_ID.`in`(it.selectTempStrings())).execute()
+      dslContext.deleteFrom(f).where(f.BOOK_ID.`in`(it.selectTempStrings())).execute()
+      dslContext.deleteFrom(m).where(m.BOOK_ID.`in`(it.selectTempStrings())).execute()
     }
   }
 
-  override fun count(): Long = dslRO.fetchCount(m).toLong()
+  override fun count(): Long = dslContext.fetchCount(m).toLong()
 
   private fun MediaRecord.toDomain(
     pages: List<BookPage>,

@@ -3,10 +3,8 @@ package org.gotson.komga.infrastructure.jooq.main
 import org.gotson.komga.domain.model.SearchContext
 import org.gotson.komga.domain.model.SearchField
 import org.gotson.komga.domain.model.SeriesSearch
-import org.gotson.komga.infrastructure.datasource.SqliteUdfDataSource
 import org.gotson.komga.infrastructure.jooq.RequiredJoin
 import org.gotson.komga.infrastructure.jooq.SeriesSearchHelper
-import org.gotson.komga.infrastructure.jooq.SplitDslDaoBase
 import org.gotson.komga.infrastructure.jooq.TempTable.Companion.withTempTable
 import org.gotson.komga.infrastructure.jooq.csAlias
 import org.gotson.komga.infrastructure.jooq.inOrNoCondition
@@ -38,7 +36,6 @@ import org.jooq.impl.DSL.count
 import org.jooq.impl.DSL.countDistinct
 import org.jooq.impl.DSL.lower
 import org.jooq.impl.DSL.substring
-import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.PageImpl
@@ -54,12 +51,10 @@ const val BOOKS_READ_COUNT = "booksReadCount"
 
 @Component
 class SeriesDtoDao(
-  dslRW: DSLContext,
-  @Qualifier("dslContextRO") dslRO: DSLContext,
+  val dslContext: DSLContext,
   private val luceneHelper: LuceneHelper,
   @param:Value("#{@komgaProperties.database.batchChunkSize}") private val batchSize: Int,
-) : SplitDslDaoBase(dslRW, dslRO),
-  SeriesDtoRepository {
+) : SeriesDtoRepository {
   private val s = Tables.SERIES
   private val d = Tables.SERIES_METADATA
   private val rs = Tables.READ_PROGRESS_SERIES
@@ -141,8 +136,8 @@ class SeriesDtoDao(
     val seriesIds = luceneHelper.searchEntitiesIds(search.fullTextSearch, LuceneEntity.Series)
     val searchCondition = s.ID.inOrNoCondition(seriesIds)
 
-    val firstChar = lower(substring(d.TITLE_SORT, 1, 1))
-    return dslRO
+    val firstChar = lower(substring(d.TITLE_SORT, 1, 1)).`as`("fc")
+    return dslContext
       .select(firstChar, count())
       .from(s)
       .leftJoin(d)
@@ -181,11 +176,11 @@ class SeriesDtoDao(
     seriesId: String,
     userId: String,
   ): SeriesDto? =
-    dslRO
+    dslContext
       .selectBase(userId)
       .where(s.ID.eq(seriesId))
       .groupBy(*groupFields)
-      .fetchAndMap(dslRO)
+      .fetchAndMap(dslContext)
       .firstOrNull()
 
   private fun DSLContext.selectBase(
@@ -232,7 +227,7 @@ class SeriesDtoDao(
     val searchCondition = s.ID.inOrNoCondition(seriesIds)
 
     val count =
-      dslRO
+      dslContext
         .select(countDistinct(s.ID))
         .from(s)
         .leftJoin(d)
@@ -279,13 +274,13 @@ class SeriesDtoDao(
       }
 
     val dtos =
-      dslRO
+      dslContext
         .selectBase(userId, joins)
         .where(conditions)
         .and(searchCondition)
         .orderBy(orderBy)
         .apply { if (pageable.isPaged) limit(pageable.pageSize).offset(pageable.offset) }
-        .fetchAndMap(dslRO)
+        .fetchAndMap(dslContext)
 
     val pageSort = if (orderBy.isNotEmpty()) pageable.sort else Sort.unsorted()
     return PageImpl(
@@ -312,7 +307,7 @@ class SeriesDtoDao(
     lateinit var aggregatedAuthors: Map<String, List<AuthorDto>>
     lateinit var aggregatedTags: Map<String, List<String>>
 
-    dsl.withTempTable(batchSize, seriesIds).use { tempTable ->
+    dsl.withTempTable(batchSize, seriesIds) { tempTable, dsl ->
       genres =
         dsl
           .selectFrom(g)

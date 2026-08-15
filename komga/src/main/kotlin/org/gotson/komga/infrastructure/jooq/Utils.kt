@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import org.gotson.komga.domain.model.AllowExclude
 import org.gotson.komga.domain.model.ContentRestrictions
 import org.gotson.komga.domain.model.MediaExtension
-import org.gotson.komga.infrastructure.datasource.SqliteUdfDataSource
 import org.gotson.komga.jooq.main.Tables
 import org.jooq.Condition
 import org.jooq.Field
@@ -18,16 +17,16 @@ import java.io.ByteArrayOutputStream
 import java.util.zip.GZIPInputStream
 import java.util.zip.GZIPOutputStream
 
-fun Field<String>.noCase() = this.collate("NOCASE")
+fun Field<String>.noCase() = this.collate(DSL.name("public", "NOCASE"))
 
 /**
  * Warning: SQLite doesn't use collations with LIKE
  */
-fun Field<String>.unicode1() = this.collate(SqliteUdfDataSource.COLLATION_UNICODE_1)
+fun Field<String>.unicode1() = this.collate(DSL.name("public", "COLLATION_UNICODE_1"))
 
-fun Field<String>.unicode3() = this.collate(SqliteUdfDataSource.COLLATION_UNICODE_3)
+fun Field<String>.unicode3() = this.collate(DSL.name("public", "COLLATION_UNICODE_3"))
 
-fun Field<String>.udfStripAccents() = DSL.function(SqliteUdfDataSource.UDF_STRIP_ACCENTS, String::class.java, this)
+fun Field<String>.udfStripAccents() = DSL.function(DSL.name("public", "unaccent"), String::class.java, this)
 
 fun Sort.toOrderBy(sorts: Map<String, Field<out Any>>): List<SortField<out Any>> =
   this.mapNotNull {

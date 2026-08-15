@@ -1,31 +1,18 @@
 package org.gotson.komga.infrastructure.configuration
 
-import jakarta.annotation.PostConstruct
 import jakarta.validation.constraints.NotBlank
 import jakarta.validation.constraints.Positive
 import org.springframework.boot.context.properties.ConfigurationProperties
 import org.springframework.boot.convert.DurationUnit
 import org.springframework.stereotype.Component
 import org.springframework.validation.annotation.Validated
-import org.sqlite.SQLiteConfig.JournalMode
 import java.time.Duration
 import java.time.temporal.ChronoUnit
-import kotlin.io.path.Path
-import kotlin.io.path.createDirectories
 
 @Component
 @ConfigurationProperties(prefix = "komga")
 @Validated
 class KomgaProperties {
-  @PostConstruct
-  private fun makeDirs() {
-    try {
-      Path(database.file).parent.createDirectories()
-      Path(tasksDb.file).parent.createDirectories()
-    } catch (_: Exception) {
-    }
-  }
-
   @Positive
   var pageHashing: Int = 3
 
@@ -37,8 +24,6 @@ class KomgaProperties {
   var oidcEmailVerification: Boolean = true
 
   var database = Database()
-
-  var tasksDb = Database()
 
   var cors = Cors()
 
@@ -56,25 +41,13 @@ class KomgaProperties {
 
   class Database {
     @get:NotBlank
-    var file: String = ""
+    var url: String = ""
 
     @get:Positive
     var batchChunkSize: Int = 1000
 
     @get:Positive
-    var poolSize: Int? = null
-
-    @get:Positive
-    var maxPoolSize: Int = 1
-
-    var journalMode: JournalMode? = JournalMode.WAL
-
-    @DurationUnit(ChronoUnit.SECONDS)
-    var busyTimeout: Duration? = null
-
-    var pragmas: Map<String, String> = emptyMap()
-
-    var checkLocalFilesystem: Boolean = true
+    var maxPoolSize: Int = 8
   }
 
   class Fonts {

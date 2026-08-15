@@ -2,7 +2,6 @@ package org.gotson.komga.infrastructure.jooq.main
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import org.gotson.komga.domain.model.MediaExtensionEpub
-import org.gotson.komga.infrastructure.jooq.SplitDslDaoBase
 import org.gotson.komga.infrastructure.jooq.deserializeMediaExtension
 import org.gotson.komga.interfaces.api.kobo.dto.ContributorDto
 import org.gotson.komga.interfaces.api.kobo.dto.KoboBookMetadataDto
@@ -11,17 +10,14 @@ import org.gotson.komga.interfaces.api.kobo.dto.PublisherDto
 import org.gotson.komga.interfaces.api.kobo.persistence.KoboDtoRepository
 import org.gotson.komga.jooq.main.Tables
 import org.jooq.DSLContext
-import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.stereotype.Component
 import java.time.ZoneId
 
 @Component
 class KoboDtoDao(
-  dslRW: DSLContext,
-  @Qualifier("dslContextRO") dslRO: DSLContext,
+  val dslContext: DSLContext,
   private val mapper: ObjectMapper,
-) : SplitDslDaoBase(dslRW, dslRO),
-  KoboDtoRepository {
+) : KoboDtoRepository {
   private val b = Tables.BOOK
   private val m = Tables.MEDIA
   private val d = Tables.BOOK_METADATA
@@ -33,7 +29,7 @@ class KoboDtoDao(
     bookIds: Collection<String>,
   ): Collection<KoboBookMetadataDto> {
     val records =
-      dslRO
+      dslContext
         .select(
           d.BOOK_ID,
           d.TITLE,
@@ -75,7 +71,7 @@ class KoboDtoDao(
       val mediaExtension = mapper.deserializeMediaExtension(mr.extensionClass, mr.extensionValueBlob) as? MediaExtensionEpub
 
       val authors =
-        dslRO
+        dslContext
           .selectFrom(a)
           .where(a.BOOK_ID.`in`(bookIds))
           .filter { it.name != null }
