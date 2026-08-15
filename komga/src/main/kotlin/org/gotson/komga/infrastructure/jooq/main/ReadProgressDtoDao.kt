@@ -1,6 +1,5 @@
 package org.gotson.komga.infrastructure.jooq.main
 
-import org.gotson.komga.infrastructure.jooq.SplitDslDaoBase
 import org.gotson.komga.interfaces.api.persistence.ReadProgressDtoRepository
 import org.gotson.komga.interfaces.api.rest.dto.TachiyomiReadProgressDto
 import org.gotson.komga.interfaces.api.rest.dto.TachiyomiReadProgressV2Dto
@@ -11,16 +10,13 @@ import org.jooq.DSLContext
 import org.jooq.Record2
 import org.jooq.impl.DSL
 import org.jooq.impl.DSL.rowNumber
-import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.stereotype.Component
 import java.math.BigDecimal
 
 @Component
 class ReadProgressDtoDao(
-  dslRW: DSLContext,
-  @Qualifier("dslContextRO") dslRO: DSLContext,
-) : SplitDslDaoBase(dslRW, dslRO),
-  ReadProgressDtoRepository {
+  val dslContext: DSLContext,
+) : ReadProgressDtoRepository {
   private val rlb = Tables.READLIST_BOOK
   private val b = Tables.BOOK
   private val d = Tables.BOOK_METADATA
@@ -35,7 +31,7 @@ class ReadProgressDtoDao(
     userId: String,
   ): TachiyomiReadProgressV2Dto {
     val numberSortReadProgress =
-      dslRO
+      dslContext
         .select(
           d.NUMBER_SORT,
           r.COMPLETED,
@@ -51,7 +47,7 @@ class ReadProgressDtoDao(
         .toList()
 
     val maxNumberSort =
-      dslRO
+      dslContext
         .select(DSL.max(d.NUMBER_SORT))
         .from(b)
         .leftJoin(d)
@@ -67,7 +63,7 @@ class ReadProgressDtoDao(
   private fun getSeriesBooksCount(
     seriesId: String,
     userId: String,
-  ) = dslRO
+  ) = dslContext
     .select(countUnread.`as`(BOOKS_UNREAD_COUNT))
     .select(countRead.`as`(BOOKS_READ_COUNT))
     .select(countInProgress.`as`(BOOKS_IN_PROGRESS_COUNT))
@@ -91,7 +87,7 @@ class ReadProgressDtoDao(
     userId: String,
   ): TachiyomiReadProgressDto {
     val indexedReadProgress =
-      dslRO
+      dslContext
         .select(
           rowNumber().over().orderBy(rlb.NUMBER),
           r.COMPLETED,
@@ -107,7 +103,7 @@ class ReadProgressDtoDao(
         .toList()
 
     val booksCountRecord =
-      dslRO
+      dslContext
         .select(countUnread.`as`(BOOKS_UNREAD_COUNT))
         .select(countRead.`as`(BOOKS_READ_COUNT))
         .select(countInProgress.`as`(BOOKS_IN_PROGRESS_COUNT))

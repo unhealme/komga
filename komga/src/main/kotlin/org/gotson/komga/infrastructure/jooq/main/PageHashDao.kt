@@ -5,14 +5,12 @@ import org.gotson.komga.domain.model.PageHashKnown
 import org.gotson.komga.domain.model.PageHashMatch
 import org.gotson.komga.domain.model.PageHashUnknown
 import org.gotson.komga.domain.persistence.PageHashRepository
-import org.gotson.komga.infrastructure.jooq.SplitDslDaoBase
 import org.gotson.komga.infrastructure.jooq.toOrderBy
 import org.gotson.komga.jooq.main.Tables
 import org.gotson.komga.jooq.main.tables.records.PageHashRecord
 import org.gotson.komga.language.toCurrentTimeZone
 import org.jooq.DSLContext
 import org.jooq.impl.DSL
-import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.PageImpl
 import org.springframework.data.domain.PageRequest
@@ -26,10 +24,8 @@ import java.time.ZoneId
 
 @Component
 class PageHashDao(
-  dslRW: DSLContext,
-  @Qualifier("dslContextRO") dslRO: DSLContext,
-) : SplitDslDaoBase(dslRW, dslRO),
-  PageHashRepository {
+  val dslContext: DSLContext,
+) : PageHashRepository {
   private val p = Tables.MEDIA_PAGE
   private val b = Tables.BOOK
   private val ph = Tables.PAGE_HASH
@@ -55,14 +51,14 @@ class PageHashDao(
       "fileSize" to p.FILE_SIZE,
       "size" to p.FILE_SIZE,
       "matchCount" to DSL.field("count"),
-      "totalSize" to DSL.field("totalSize"),
+      "totalSize" to DSL.field(DSL.name("totalSize")),
       "url" to b.URL,
       "bookId" to b.ID,
       "pageNumber" to p.NUMBER,
     )
 
   override fun findKnown(pageHash: String): PageHashKnown? =
-    dslRO
+    dslContext
       .selectFrom(ph)
       .where(ph.HASH.eq(pageHash))
       .fetchOneInto(ph)
@@ -73,7 +69,7 @@ class PageHashDao(
     pageable: Pageable,
   ): Page<PageHashKnown> {
     val query =
-      dslRO
+      dslContext
         .select(*ph.fields(), DSL.count(p.FILE_HASH).`as`("count"))
         .from(ph)
         .leftJoin(p)
@@ -81,7 +77,7 @@ class PageHashDao(
         .apply { actions?.let { where(ph.ACTION.`in`(actions)) } }
         .groupBy(*ph.fields())
 
-    val count = dslRO.fetchCount(query)
+    val count = dslContext.fetchCount(query)
 
     val orderBy = pageable.sort.toOrderBy(sortsKnown)
     val items =
@@ -105,25 +101,25 @@ class PageHashDao(
   override fun findAllUnknown(pageable: Pageable): Page<PageHashUnknown> {
     val bookCount = DSL.count(p.BOOK_ID)
     val query =
-      dslRO
+      dslContext
         .select(
           p.FILE_HASH,
           p.FILE_SIZE,
           bookCount.`as`("count"),
-          (bookCount * p.FILE_SIZE).`as`("totalSize"),
+          (bookCount * p.FILE_SIZE).`as`(DSL.name("totalSize")),
         ).from(p)
         .where(p.FILE_HASH.ne(""))
         .and(
           DSL.notExists(
-            dslRO
+            dslContext
               .selectOne()
               .from(ph)
               .where(ph.HASH.eq(p.FILE_HASH)),
           ),
-        ).groupBy(p.FILE_HASH)
+        ).groupBy(p.FILE_HASH, p.FILE_SIZE)
         .having(DSL.count(p.BOOK_ID).gt(1))
 
-    val count = dslRO.fetchCount(query)
+    val count = dslContext.fetchCount(query)
 
     val orderBy = pageable.sort.toOrderBy(sortsUnknown)
     val items =
@@ -150,14 +146,14 @@ class PageHashDao(
     pageable: Pageable,
   ): Page<PageHashMatch> {
     val query =
-      dslRO
+      dslContext
         .select(p.BOOK_ID, b.URL, p.NUMBER, p.FILE_NAME, p.FILE_SIZE, p.MEDIA_TYPE)
         .from(p)
         .leftJoin(b)
         .on(p.BOOK_ID.eq(b.ID))
         .where(p.FILE_HASH.eq(pageHash))
 
-    val count = dslRO.fetchCount(query)
+    val count = dslContext.fetchCount(query)
 
     val orderBy = pageable.sort.toOrderBy(sortsUnknown)
     val items =
@@ -190,7 +186,7 @@ class PageHashDao(
     actions: List<PageHashKnown.Action>?,
     libraryId: String?,
   ): Map<String, Collection<BookPageNumbered>> =
-    dslRO
+    dslContext
       .select(p.BOOK_ID, p.FILE_NAME, p.NUMBER, p.FILE_HASH, p.MEDIA_TYPE, p.FILE_SIZE)
       .from(p)
       .innerJoin(ph)
@@ -211,7 +207,7 @@ class PageHashDao(
       .fold(emptyList()) { acc, (_, new) -> acc + new }
 
   override fun getKnownThumbnail(pageHash: String): ByteArray? =
-    dslRO
+    dslContext
       .select(pht.THUMBNAIL)
       .from(pht)
       .where(pht.HASH.eq(pageHash))
@@ -223,7 +219,7 @@ class PageHashDao(
     pageHash: PageHashKnown,
     thumbnail: ByteArray?,
   ) {
-    dslRW
+    dslContext
       .insertInto(ph)
       .set(ph.HASH, pageHash.hash)
       .set(ph.SIZE, pageHash.size)
@@ -231,7 +227,7 @@ class PageHashDao(
       .execute()
 
     if (thumbnail != null) {
-      dslRW
+      dslContext
         .insertInto(pht)
         .set(pht.HASH, pageHash.hash)
         .set(pht.THUMBNAIL, thumbnail)
@@ -240,7 +236,7 @@ class PageHashDao(
   }
 
   override fun update(pageHash: PageHashKnown) {
-    dslRW
+    dslContext
       .update(ph)
       .set(ph.ACTION, pageHash.action.name)
       .set(ph.SIZE, pageHash.size)

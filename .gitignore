@@ -60,3 +60,6 @@ secret/
 
 ### Kilo
 /.kilo/
+
+### Flyway
+/local.properties

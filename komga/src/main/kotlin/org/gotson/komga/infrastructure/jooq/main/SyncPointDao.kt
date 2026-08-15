@@ -8,7 +8,6 @@ import org.gotson.komga.domain.model.SyncPoint.ReadList.Companion.ON_DECK_ID
 import org.gotson.komga.domain.persistence.SyncPointRepository
 import org.gotson.komga.infrastructure.jooq.BookSearchHelper
 import org.gotson.komga.infrastructure.jooq.RequiredJoin
-import org.gotson.komga.infrastructure.jooq.SplitDslDaoBase
 import org.gotson.komga.jooq.main.Tables
 import org.gotson.komga.language.toZonedDateTime
 import org.jooq.DSLContext
@@ -16,7 +15,6 @@ import org.jooq.Field
 import org.jooq.Record1
 import org.jooq.SelectConditionStep
 import org.jooq.impl.DSL
-import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.PageImpl
 import org.springframework.data.domain.PageRequest
@@ -29,11 +27,9 @@ import java.time.ZoneId
 
 @Component
 class SyncPointDao(
-  dslRW: DSLContext,
-  @Qualifier("dslContextRO") dslRO: DSLContext,
+  val dslContext: DSLContext,
   private val bookCommonDao: BookCommonDao,
-) : SplitDslDaoBase(dslRW, dslRO),
-  SyncPointRepository {
+) : SyncPointRepository {
   private val b = Tables.BOOK
   private val m = Tables.MEDIA
   private val d = Tables.BOOK_METADATA
@@ -60,7 +56,7 @@ class SyncPointDao(
     val syncPointId = TsidCreator.getTsid256().toString()
     val createdAt = LocalDateTime.now(ZoneId.of("Z"))
 
-    dslRW
+    dslContext
       .insertInto(
         sp,
         sp.ID,
@@ -74,7 +70,7 @@ class SyncPointDao(
         createdAt,
       ).execute()
 
-    dslRW
+    dslContext
       .insertInto(
         spb,
         spb.SYNC_POINT_ID,
@@ -88,7 +84,7 @@ class SyncPointDao(
         spb.BOOK_READ_PROGRESS_LAST_MODIFIED_DATE,
         spb.BOOK_THUMBNAIL_ID,
       ).select(
-        dslRW
+        dslContext
           .select(
             DSL.`val`(syncPointId),
             b.ID,
@@ -147,16 +143,16 @@ class SyncPointDao(
     val (query, _, queryMostRecentDate) = bookCommonDao.getBooksOnDeckQuery(context.userId, context.restrictions, filterOnLibraryIds, onDeckFields)
 
     val count =
-      dslRW
+      dslContext
         .insertInto(sprlb)
         .select(query)
         .execute()
 
     // only add the read list entry if some books were added
     if (count > 0) {
-      val mostRecentDate = dslRW.fetch(queryMostRecentDate).into(LocalDateTime::class.java).firstOrNull() ?: createdAt
+      val mostRecentDate = dslContext.fetch(queryMostRecentDate).into(LocalDateTime::class.java).firstOrNull() ?: createdAt
 
-      dslRW
+      dslContext
         .insertInto(
           sprl,
           sprl.SYNC_POINT_ID,
@@ -175,7 +171,7 @@ class SyncPointDao(
   }
 
   override fun findByIdOrNull(syncPointId: String): SyncPoint? =
-    dslRO
+    dslContext
       .selectFrom(sp)
       .where(sp.ID.eq(syncPointId))
       .fetchInto(sp)
@@ -194,7 +190,7 @@ class SyncPointDao(
     pageable: Pageable,
   ): Page<SyncPoint.Book> {
     val query =
-      dslRO
+      dslContext
         .selectFrom(spb)
         .where(spb.SYNC_POINT_ID.eq(syncPointId))
         .apply {
@@ -203,7 +199,7 @@ class SyncPointDao(
           }
         }
 
-    return dslRO.queryToPageBook(query, pageable)
+    return dslContext.queryToPageBook(query, pageable)
   }
 
   override fun findBooksAdded(
@@ -213,7 +209,7 @@ class SyncPointDao(
     pageable: Pageable,
   ): Page<SyncPoint.Book> {
     val query =
-      dslRO
+      dslContext
         .selectFrom(spb)
         .where(spb.SYNC_POINT_ID.eq(toSyncPointId))
         .apply {
@@ -222,11 +218,11 @@ class SyncPointDao(
           }
         }.and(
           spb.BOOK_ID.notIn(
-            dslRO.select(spb.BOOK_ID).from(spb).where(spb.SYNC_POINT_ID.eq(fromSyncPointId)),
+            dslContext.select(spb.BOOK_ID).from(spb).where(spb.SYNC_POINT_ID.eq(fromSyncPointId)),
           ),
         )
 
-    return dslRO.queryToPageBook(query, pageable)
+    return dslContext.queryToPageBook(query, pageable)
   }
 
   override fun findBooksRemoved(
@@ -236,23 +232,23 @@ class SyncPointDao(
     pageable: Pageable,
   ): Page<SyncPoint.Book> {
     val query =
-      dslRO
+      dslContext
         .selectFrom(spb)
         .where(spb.SYNC_POINT_ID.eq(fromSyncPointId))
         .and(
           spb.BOOK_ID.notIn(
-            dslRO.select(spb.BOOK_ID).from(spb).where(spb.SYNC_POINT_ID.eq(toSyncPointId)),
+            dslContext.select(spb.BOOK_ID).from(spb).where(spb.SYNC_POINT_ID.eq(toSyncPointId)),
           ),
         ).apply {
           if (onlyNotSynced)
             and(
               spb.BOOK_ID.notIn(
-                dslRO.select(spbs.BOOK_ID).from(spbs).where(spbs.SYNC_POINT_ID.eq(toSyncPointId)),
+                dslContext.select(spbs.BOOK_ID).from(spbs).where(spbs.SYNC_POINT_ID.eq(toSyncPointId)),
               ),
             )
         }
 
-    return dslRO.queryToPageBook(query, pageable)
+    return dslContext.queryToPageBook(query, pageable)
   }
 
   override fun findBooksChanged(
@@ -263,7 +259,7 @@ class SyncPointDao(
   ): Page<SyncPoint.Book> {
     val spbFrom = spb.`as`("spbFrom")
     val query =
-      dslRO
+      dslContext
         .select(*spb.fields())
         .from(spb)
         .join(spbFrom)
@@ -283,7 +279,7 @@ class SyncPointDao(
             .or(spb.BOOK_THUMBNAIL_ID.ne(spbFrom.BOOK_THUMBNAIL_ID)),
         )
 
-    return dslRO.queryToPageBook(query, pageable)
+    return dslContext.queryToPageBook(query, pageable)
   }
 
   override fun findBooksReadProgressChanged(
@@ -294,7 +290,7 @@ class SyncPointDao(
   ): Page<SyncPoint.Book> {
     val spbFrom = spb.`as`("spbFrom")
     val query =
-      dslRO
+      dslContext
         .select(*spb.fields())
         .from(spb)
         .join(spbFrom)
@@ -322,7 +318,7 @@ class SyncPointDao(
             ),
         )
 
-    return dslRO.queryToPageBook(query, pageable)
+    return dslContext.queryToPageBook(query, pageable)
   }
 
   override fun findReadListsById(
@@ -331,7 +327,7 @@ class SyncPointDao(
     pageable: Pageable,
   ): Page<SyncPoint.ReadList> {
     val query =
-      dslRO
+      dslContext
         .selectFrom(sprl)
         .where(sprl.SYNC_POINT_ID.eq(syncPointId))
         .apply {
@@ -340,7 +336,7 @@ class SyncPointDao(
           }
         }
 
-    return dslRO.queryToPageReadList(query, pageable)
+    return dslContext.queryToPageReadList(query, pageable)
   }
 
   override fun findReadListsAdded(
@@ -352,7 +348,7 @@ class SyncPointDao(
     val to = sprl.`as`("to")
     val from = sprl.`as`("from")
     val query =
-      dslRO
+      dslContext
         .select(*to.fields())
         .from(to)
         .leftOuterJoin(from)
@@ -361,7 +357,7 @@ class SyncPointDao(
         .apply { if (onlyNotSynced) and(to.SYNCED.isFalse) }
         .and(from.READLIST_ID.isNull)
 
-    return dslRO.queryToPageReadList(query, pageable)
+    return dslContext.queryToPageReadList(query, pageable)
   }
 
   override fun findReadListsChanged(
@@ -372,7 +368,7 @@ class SyncPointDao(
   ): Page<SyncPoint.ReadList> {
     val from = sprl.`as`("from")
     val query =
-      dslRO
+      dslContext
         .select(*sprl.fields())
         .from(sprl)
         .join(from)
@@ -386,7 +382,7 @@ class SyncPointDao(
             .or(sprl.READLIST_NAME.ne(from.READLIST_NAME)),
         )
 
-    return dslRO.queryToPageReadList(query, pageable)
+    return dslContext.queryToPageReadList(query, pageable)
   }
 
   override fun findReadListsRemoved(
@@ -398,7 +394,7 @@ class SyncPointDao(
     val from = sprl.`as`("from")
     val to = sprl.`as`("to")
     val query =
-      dslRO
+      dslContext
         .select(*from.fields())
         .from(from)
         .leftOuterJoin(to)
@@ -408,19 +404,19 @@ class SyncPointDao(
           if (onlyNotSynced)
             and(
               from.READLIST_ID.notIn(
-                dslRO.select(sprls.READLIST_ID).from(sprls).where(sprls.SYNC_POINT_ID.eq(toSyncPointId)),
+                dslContext.select(sprls.READLIST_ID).from(sprls).where(sprls.SYNC_POINT_ID.eq(toSyncPointId)),
               ),
             )
         }.and(to.READLIST_ID.isNull)
 
-    return dslRO.queryToPageReadList(query, pageable)
+    return dslContext.queryToPageReadList(query, pageable)
   }
 
   override fun findBookIdsByReadListIds(
     syncPointId: String,
     readListIds: Collection<String>,
   ): List<SyncPoint.ReadList.Book> =
-    dslRO
+    dslContext
       .select(*sprlb.fields())
       .from(sprlb)
       .where(sprlb.SYNC_POINT_ID.eq(syncPointId))
@@ -437,14 +433,14 @@ class SyncPointDao(
     // we store status in a separate table
     if (bookIds.isNotEmpty()) {
       if (forRemovedBooks)
-        dslRW
+        dslContext
           .batch(
-            dslRW.insertInto(spbs, spbs.SYNC_POINT_ID, spbs.BOOK_ID).values(null as String?, null).onDuplicateKeyIgnore(),
+            dslContext.insertInto(spbs, spbs.SYNC_POINT_ID, spbs.BOOK_ID).values(null as String?, null).onDuplicateKeyIgnore(),
           ).also { step ->
             bookIds.map { step.bind(syncPointId, it) }
           }.execute()
       else
-        dslRW
+        dslContext
           .update(spb)
           .set(spb.SYNCED, true)
           .where(spb.SYNC_POINT_ID.eq(syncPointId))
@@ -462,14 +458,14 @@ class SyncPointDao(
     // we store status in a separate table
     if (readListIds.isNotEmpty()) {
       if (forRemovedReadLists)
-        dslRW
+        dslContext
           .batch(
-            dslRW.insertInto(sprls, sprls.SYNC_POINT_ID, sprls.READLIST_ID).values(null as String?, null).onDuplicateKeyIgnore(),
+            dslContext.insertInto(sprls, sprls.SYNC_POINT_ID, sprls.READLIST_ID).values(null as String?, null).onDuplicateKeyIgnore(),
           ).also { step ->
             readListIds.map { step.bind(syncPointId, it) }
           }.execute()
       else
-        dslRW
+        dslContext
           .update(sprl)
           .set(sprl.SYNCED, true)
           .where(sprl.SYNC_POINT_ID.eq(syncPointId))
@@ -479,16 +475,16 @@ class SyncPointDao(
   }
 
   override fun deleteByUserId(userId: String) {
-    dslRW.deleteSubEntities(dslRW.select(sp.ID).from(sp).where(sp.USER_ID.eq(userId)))
-    dslRW.deleteFrom(sp).where(sp.USER_ID.eq(userId)).execute()
+    dslContext.deleteSubEntities(dslContext.select(sp.ID).from(sp).where(sp.USER_ID.eq(userId)))
+    dslContext.deleteFrom(sp).where(sp.USER_ID.eq(userId)).execute()
   }
 
   override fun deleteByUserIdAndApiKeyIds(
     userId: String,
     apiKeyIds: Collection<String>,
   ) {
-    dslRW.deleteSubEntities(dslRW.select(sp.ID).from(sp).where(sp.USER_ID.eq(userId).and(sp.API_KEY_ID.`in`(apiKeyIds))))
-    dslRW.deleteFrom(sp).where(sp.USER_ID.eq(userId).and(sp.API_KEY_ID.`in`(apiKeyIds))).execute()
+    dslContext.deleteSubEntities(dslContext.select(sp.ID).from(sp).where(sp.USER_ID.eq(userId).and(sp.API_KEY_ID.`in`(apiKeyIds))))
+    dslContext.deleteFrom(sp).where(sp.USER_ID.eq(userId).and(sp.API_KEY_ID.`in`(apiKeyIds))).execute()
   }
 
   private fun DSLContext.deleteSubEntities(condition: SelectConditionStep<Record1<String>>) {
@@ -500,21 +496,21 @@ class SyncPointDao(
   }
 
   override fun deleteOne(syncPointId: String) {
-    dslRW.deleteFrom(sprls).where(sprls.SYNC_POINT_ID.eq(syncPointId)).execute()
-    dslRW.deleteFrom(sprlb).where(sprlb.SYNC_POINT_ID.eq(syncPointId)).execute()
-    dslRW.deleteFrom(sprl).where(sprl.SYNC_POINT_ID.eq(syncPointId)).execute()
-    dslRW.deleteFrom(spbs).where(spbs.SYNC_POINT_ID.eq(syncPointId)).execute()
-    dslRW.deleteFrom(spb).where(spb.SYNC_POINT_ID.eq(syncPointId)).execute()
-    dslRW.deleteFrom(sp).where(sp.ID.eq(syncPointId)).execute()
+    dslContext.deleteFrom(sprls).where(sprls.SYNC_POINT_ID.eq(syncPointId)).execute()
+    dslContext.deleteFrom(sprlb).where(sprlb.SYNC_POINT_ID.eq(syncPointId)).execute()
+    dslContext.deleteFrom(sprl).where(sprl.SYNC_POINT_ID.eq(syncPointId)).execute()
+    dslContext.deleteFrom(spbs).where(spbs.SYNC_POINT_ID.eq(syncPointId)).execute()
+    dslContext.deleteFrom(spb).where(spb.SYNC_POINT_ID.eq(syncPointId)).execute()
+    dslContext.deleteFrom(sp).where(sp.ID.eq(syncPointId)).execute()
   }
 
   override fun deleteAll() {
-    dslRW.deleteFrom(sprls).execute()
-    dslRW.deleteFrom(sprlb).execute()
-    dslRW.deleteFrom(sprl).execute()
-    dslRW.deleteFrom(spbs).execute()
-    dslRW.deleteFrom(spb).execute()
-    dslRW.deleteFrom(sp).execute()
+    dslContext.deleteFrom(sprls).execute()
+    dslContext.deleteFrom(sprlb).execute()
+    dslContext.deleteFrom(sprl).execute()
+    dslContext.deleteFrom(spbs).execute()
+    dslContext.deleteFrom(spb).execute()
+    dslContext.deleteFrom(sp).execute()
   }
 
   private fun DSLContext.queryToPageBook(

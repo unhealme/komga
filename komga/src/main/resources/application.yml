@@ -16,14 +16,12 @@ logging:
 
 komga:
   database:
-    file: \${komga.config-dir}/database.sqlite
+    url: jdbc:postgresql://localhost:5432/komga?user=komga&password=komga
   lucene:
     data-directory: \${komga.config-dir}/lucene
   fonts:
     data-directory: \${komga.config-dir}/fonts
   config-dir: \${user.home}/.komga
-  tasks-db:
-    file: \${komga.config-dir}/tasks.sqlite
 
 spring:
   flyway:

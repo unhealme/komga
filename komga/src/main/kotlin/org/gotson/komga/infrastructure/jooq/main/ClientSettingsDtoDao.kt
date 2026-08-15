@@ -1,29 +1,26 @@
 package org.gotson.komga.infrastructure.jooq.main
 
-import org.gotson.komga.infrastructure.jooq.SplitDslDaoBase
 import org.gotson.komga.interfaces.api.rest.dto.ClientSettingDto
 import org.gotson.komga.jooq.main.Tables
 import org.jooq.DSLContext
-import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.stereotype.Component
 
 @Component
 class ClientSettingsDtoDao(
-  dslRW: DSLContext,
-  @Qualifier("dslContextRO") dslRO: DSLContext,
-) : SplitDslDaoBase(dslRW, dslRO) {
+  val dslContext: DSLContext,
+) {
   private val g = Tables.CLIENT_SETTINGS_GLOBAL
   private val u = Tables.CLIENT_SETTINGS_USER
 
   fun findAllGlobal(onlyUnauthorized: Boolean = false): Map<String, ClientSettingDto> =
-    dslRO
+    dslContext
       .selectFrom(g)
       .apply { if (onlyUnauthorized) where(g.ALLOW_UNAUTHORIZED.isTrue) }
       .fetch()
       .associate { it.key to ClientSettingDto(it.value, it.allowUnauthorized) }
 
   fun findAllUser(userId: String): Map<String, ClientSettingDto> =
-    dslRO
+    dslContext
       .selectFrom(u)
       .where(u.USER_ID.eq(userId))
       .fetch()
@@ -34,7 +31,7 @@ class ClientSettingsDtoDao(
     value: String,
     allowUnauthorized: Boolean,
   ) {
-    dslRW
+    dslContext
       .insertInto(g, g.KEY, g.VALUE, g.ALLOW_UNAUTHORIZED)
       .values(key, value, allowUnauthorized)
       .onDuplicateKeyUpdate()
@@ -47,7 +44,7 @@ class ClientSettingsDtoDao(
     key: String,
     value: String,
   ) {
-    dslRW
+    dslContext
       .insertInto(u, u.USER_ID, u.KEY, u.VALUE)
       .values(userId, key, value)
       .onDuplicateKeyUpdate()
@@ -56,12 +53,12 @@ class ClientSettingsDtoDao(
   }
 
   fun deleteAll() {
-    dslRW.deleteFrom(g).execute()
-    dslRW.deleteFrom(u).execute()
+    dslContext.deleteFrom(g).execute()
+    dslContext.deleteFrom(u).execute()
   }
 
   fun deleteGlobalByKeys(keys: Collection<String>) {
-    dslRW
+    dslContext
       .deleteFrom(g)
       .where(g.KEY.`in`(keys))
       .execute()
@@ -71,7 +68,7 @@ class ClientSettingsDtoDao(
     userId: String,
     keys: Collection<String>,
   ) {
-    dslRW
+    dslContext
       .deleteFrom(u)
       .where(u.KEY.`in`(keys))
       .and(u.USER_ID.eq(userId))
@@ -79,7 +76,7 @@ class ClientSettingsDtoDao(
   }
 
   fun deleteByUserId(userId: String) {
-    dslRW
+    dslContext
       .deleteFrom(u)
       .where(u.USER_ID.eq(userId))
       .execute()

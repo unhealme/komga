@@ -3,6 +3,7 @@ import org.flywaydb.gradle.task.FlywayMigrateTask
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.util.prefixIfNot
 import org.springframework.boot.gradle.plugin.SpringBootPlugin
+import java.util.Properties
 
 plugins {
   kotlin("jvm")
@@ -11,7 +12,7 @@ plugins {
   id("org.springframework.boot") version libs.versions.springboot.get()
   alias(libs.plugins.gradleGitProperties)
   id("nu.studer.jooq") version "10.2.1"
-  id("org.flywaydb.flyway") version "13.1.0"
+  id("org.flywaydb.flyway") version "13.2.0"
   id("com.github.johnrengelman.processes") version "0.5.0"
   id("org.springdoc.openapi-gradle-plugin") version "1.9.0"
   id("com.google.devtools.ksp") version "2.3.1"
@@ -71,7 +72,7 @@ dependencies {
 
   kapt("org.springframework.boot:spring-boot-configuration-processor:${libs.versions.springboot.get()}")
 
-  implementation("org.flywaydb:flyway-core")
+  implementation("org.flywaydb:flyway-database-postgresql")
 
   api("io.github.oshai:kotlin-logging-jvm:8.0.4")
 
@@ -120,8 +121,8 @@ dependencies {
 
   implementation("com.github.ben-manes.caffeine:caffeine")
 
-  implementation("org.xerial:sqlite-jdbc:${libs.versions.sqliteJdbc.get()}")
-  jooqGenerator("org.xerial:sqlite-jdbc:${libs.versions.sqliteJdbc.get()}")
+  implementation("org.postgresql:postgresql:${libs.versions.postgresql.get()}")
+  jooqGenerator("org.postgresql:postgresql:${libs.versions.postgresql.get()}")
 
   if (version.toString().endsWith(".0.0")) {
     ksp("com.github.gotson.bestbefore:bestbefore-processor-kotlin:0.2.0")
@@ -256,29 +257,26 @@ springBoot {
   }
 }
 
-val sqliteUrls =
-  mapOf(
-    "main" to "jdbc:sqlite:${project.layout.buildDirectory.get()}/generated/flyway/main/database.sqlite",
-    "tasks" to "jdbc:sqlite:${project.layout.buildDirectory.get()}/generated/flyway/tasks/tasks.sqlite",
-  )
-val sqliteMigrationDirs =
-  mapOf(
-    "main" to
-      listOf(
-        "$projectDir/src/flyway/resources/db/migration/sqlite",
-        "$projectDir/src/flyway/kotlin/db/migration/sqlite",
-      ),
-    "tasks" to
-      listOf(
-        "$projectDir/src/flyway/resources/tasks/migration/sqlite",
-//    "$projectDir/src/flyway/kotlin/tasks/migration/sqlite",
-      ),
-  )
+val properties =
+  Properties().apply {
+    rootProject.file("local.properties").reader().use(::load)
+  }
+val pgUrl = properties["postgres.url"] as String
+var pgUser = properties["postgres.user"] as String
+var pgPassword = properties["postgres.password"] as String
+val postgresMigrationDirs = listOf(
+  "$projectDir/src/flyway/resources/db/migration/postgresql",
+  "$projectDir/src/flyway/kotlin/db/migration/postgresql",
+)
+
+flyway {
+  url = pgUrl
+  user = pgUser
+  password = pgPassword
+}
 
 tasks.register("flywayMigrateMain", FlywayMigrateTask::class) {
-  val id = "main"
-  url = sqliteUrls[id]
-  locations = arrayOf("classpath:db/migration/sqlite")
+  locations = arrayOf("classpath:db/migration/postgresql")
   placeholders =
     mapOf(
       "library-file-hashing" to "true",
@@ -288,27 +286,7 @@ tasks.register("flywayMigrateMain", FlywayMigrateTask::class) {
     )
   // in order to include the Java migrations, flywayClasses must be run before flywayMigrate
   dependsOn("flywayClasses")
-  sqliteMigrationDirs[id]?.forEach { inputs.dir(it) }
-  outputs.dir("${project.layout.buildDirectory.get()}/generated/flyway/$id")
-  doFirst {
-    delete(outputs.files)
-    mkdir("${project.layout.buildDirectory.get()}/generated/flyway/$id")
-  }
-  mixed = true
-}
-
-tasks.register("flywayMigrateTasks", FlywayMigrateTask::class) {
-  val id = "tasks"
-  url = sqliteUrls[id]
-  locations = arrayOf("classpath:tasks/migration/sqlite")
-  // in order to include the Java migrations, flywayClasses must be run before flywayMigrate
-  dependsOn("flywayClasses")
-  sqliteMigrationDirs[id]?.forEach { inputs.dir(it) }
-  outputs.dir("${project.layout.buildDirectory.get()}/generated/flyway/$id")
-  doFirst {
-    delete(outputs.files)
-    mkdir("${project.layout.buildDirectory.get()}/generated/flyway/$id")
-  }
+  postgresMigrationDirs.forEach { inputs.dir(mkdir(it)) }
   mixed = true
 }
 
@@ -317,6 +295,9 @@ buildscript {
     if (requested.group.startsWith("org.jooq") && requested.name.startsWith("jooq")) {
       useVersion(libs.versions.jooq.get())
     }
+  }
+  dependencies {
+    classpath("org.flywaydb:flyway-database-postgresql:13.2.0")
   }
 }
 
@@ -327,12 +308,15 @@ jooq {
       jooqConfiguration.apply {
         logging = org.jooq.meta.jaxb.Logging.WARN
         jdbc.apply {
-          driver = "org.sqlite.JDBC"
-          url = sqliteUrls["main"]
+          driver = "org.postgresql.Driver"
+          url = pgUrl
+          user = pgUser
+          password = pgPassword
         }
         generator.apply {
           database.apply {
-            name = "org.jooq.meta.sqlite.SQLiteDatabase"
+            name = "org.jooq.meta.postgres.PostgresDatabase"
+            inputSchema = "public"
           }
           target.apply {
             packageName = "org.gotson.komga.jooq.main"
@@ -340,50 +324,28 @@ jooq {
         }
       }
     }
-    create("tasks") {
-      jooqConfiguration.apply {
-        logging = org.jooq.meta.jaxb.Logging.WARN
-        jdbc.apply {
-          driver = "org.sqlite.JDBC"
-          url = sqliteUrls["tasks"]
-        }
-        generator.apply {
-          database.apply {
-            name = "org.jooq.meta.sqlite.SQLiteDatabase"
-          }
-          target.apply {
-            packageName = "org.gotson.komga.jooq.tasks"
-          }
-        }
-      }
-    }
   }
 }
 tasks.named<JooqGenerate>("generateJooq") {
-  sqliteMigrationDirs["main"]?.forEach { inputs.dir(it) }
+  postgresMigrationDirs.forEach { inputs.dir(it) }
   allInputsDeclared = true
   dependsOn("flywayMigrateMain")
-}
-tasks.named<JooqGenerate>("generateTasksJooq") {
-  sqliteMigrationDirs["tasks"]?.forEach { inputs.dir(it) }
-  allInputsDeclared = true
-  dependsOn("flywayMigrateTasks")
 }
 
 tasks.whenTaskAdded {
   if (name == "kaptGenerateStubsKotlin") {
-    dependsOn("generateTasksJooq")
+    dependsOn("generateJooq")
   }
 }
 
 tasks.runKtlintFormatOverMainSourceSet {
-  dependsOn("generateTasksJooq")
+  dependsOn("generateJooq")
 }
 tasks.runKtlintCheckOverMainSourceSet {
-  dependsOn("generateTasksJooq")
+  dependsOn("generateJooq")
 }
 tasks.compileKotlin {
-  dependsOn("generateTasksJooq")
+  dependsOn("generateJooq")
 }
 
 openApi {

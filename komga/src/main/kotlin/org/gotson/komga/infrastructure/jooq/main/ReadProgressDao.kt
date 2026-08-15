@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import org.gotson.komga.domain.model.R2Locator
 import org.gotson.komga.domain.model.ReadProgress
 import org.gotson.komga.domain.persistence.ReadProgressRepository
-import org.gotson.komga.infrastructure.jooq.SplitDslDaoBase
 import org.gotson.komga.infrastructure.jooq.TempTable
 import org.gotson.komga.infrastructure.jooq.TempTable.Companion.withTempTable
 import org.gotson.komga.infrastructure.jooq.deserializeJsonGz
@@ -16,7 +15,6 @@ import org.gotson.komga.language.toUTC
 import org.jooq.DSLContext
 import org.jooq.Query
 import org.jooq.impl.DSL
-import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
@@ -25,18 +23,16 @@ import java.time.ZoneId
 
 @Component
 class ReadProgressDao(
-  dslRW: DSLContext,
-  @Qualifier("dslContextRO") dslRO: DSLContext,
+  val dslContext: DSLContext,
   @param:Value("#{@komgaProperties.database.batchChunkSize}") private val batchSize: Int,
   private val mapper: ObjectMapper,
-) : SplitDslDaoBase(dslRW, dslRO),
-  ReadProgressRepository {
+) : ReadProgressRepository {
   private val r = Tables.READ_PROGRESS
   private val rs = Tables.READ_PROGRESS_SERIES
   private val b = Tables.BOOK
 
   override fun findAll(): Collection<ReadProgress> =
-    dslRO
+    dslContext
       .selectFrom(r)
       .fetchInto(r)
       .map { it.toDomain() }
@@ -45,21 +41,21 @@ class ReadProgressDao(
     bookId: String,
     userId: String,
   ): ReadProgress? =
-    dslRO
+    dslContext
       .selectFrom(r)
       .where(r.BOOK_ID.eq(bookId).and(r.USER_ID.eq(userId)))
       .fetchOneInto(r)
       ?.toDomain()
 
   override fun findAllByUserId(userId: String): Collection<ReadProgress> =
-    dslRO
+    dslContext
       .selectFrom(r)
       .where(r.USER_ID.eq(userId))
       .fetchInto(r)
       .map { it.toDomain() }
 
   override fun findAllByBookId(bookId: String): Collection<ReadProgress> =
-    dslRO
+    dslContext
       .selectFrom(r)
       .where(r.BOOK_ID.eq(bookId))
       .fetchInto(r)
@@ -69,7 +65,7 @@ class ReadProgressDao(
     bookIds: Collection<String>,
     userId: String,
   ): Collection<ReadProgress> =
-    dslRO
+    dslContext
       .selectFrom(r)
       .where(r.BOOK_ID.`in`(bookIds).and(r.USER_ID.eq(userId)))
       .fetchInto(r)
@@ -77,21 +73,21 @@ class ReadProgressDao(
 
   @Transactional
   override fun save(readProgress: ReadProgress) {
-    readProgress.toQuery(dslRW).execute()
-    dslRW.aggregateSeriesProgress(listOf(readProgress.bookId), readProgress.userId)
+    readProgress.toQuery(dslContext).execute()
+    dslContext.aggregateSeriesProgress(listOf(readProgress.bookId), readProgress.userId)
   }
 
   @Transactional
   override fun save(readProgresses: Collection<ReadProgress>) {
     readProgresses
-      .map { it.toQuery(dslRW) }
+      .map { it.toQuery(dslContext) }
       .chunked(batchSize)
-      .forEach { chunk -> dslRW.batch(chunk).execute() }
+      .forEach { chunk -> dslContext.batch(chunk).execute() }
 
     readProgresses
       .groupBy { it.userId }
       .forEach { (userId, readProgresses) ->
-        dslRW.aggregateSeriesProgress(readProgresses.map { it.bookId }, userId)
+        dslContext.aggregateSeriesProgress(readProgresses.map { it.bookId }, userId)
       }
   }
 
@@ -130,34 +126,34 @@ class ReadProgressDao(
     bookId: String,
     userId: String,
   ) {
-    dslRW.deleteFrom(r).where(r.BOOK_ID.eq(bookId).and(r.USER_ID.eq(userId))).execute()
-    dslRW.aggregateSeriesProgress(listOf(bookId), userId)
+    dslContext.deleteFrom(r).where(r.BOOK_ID.eq(bookId).and(r.USER_ID.eq(userId))).execute()
+    dslContext.aggregateSeriesProgress(listOf(bookId), userId)
   }
 
   @Transactional
   override fun deleteByUserId(userId: String) {
-    dslRW.deleteFrom(r).where(r.USER_ID.eq(userId)).execute()
-    dslRW.deleteFrom(rs).where(rs.USER_ID.eq(userId)).execute()
+    dslContext.deleteFrom(r).where(r.USER_ID.eq(userId)).execute()
+    dslContext.deleteFrom(rs).where(rs.USER_ID.eq(userId)).execute()
   }
 
   @Transactional
   override fun deleteByBookId(bookId: String) {
-    dslRW.deleteFrom(r).where(r.BOOK_ID.eq(bookId)).execute()
-    dslRW.aggregateSeriesProgress(listOf(bookId))
+    dslContext.deleteFrom(r).where(r.BOOK_ID.eq(bookId)).execute()
+    dslContext.aggregateSeriesProgress(listOf(bookId))
   }
 
   @Transactional
   override fun deleteByBookIds(bookIds: Collection<String>) {
-    dslRW.withTempTable(batchSize, bookIds).use { tempTable ->
-      dslRW.deleteFrom(r).where(r.BOOK_ID.`in`(tempTable.selectTempStrings())).execute()
-      dslRW.aggregateSeriesProgress(tempTable)
+    dslContext.withTempTable(batchSize, bookIds) { tempTable, dslContext ->
+      dslContext.deleteFrom(r).where(r.BOOK_ID.`in`(tempTable.selectTempStrings())).execute()
+      dslContext.aggregateSeriesProgress(tempTable)
     }
   }
 
   @Transactional
   override fun deleteBySeriesIds(seriesIds: Collection<String>) {
-    dslRW.withTempTable(batchSize, seriesIds).use {
-      dslRW.deleteFrom(rs).where(rs.SERIES_ID.`in`(it.selectTempStrings())).execute()
+    dslContext.withTempTable(batchSize, seriesIds) { it, dslContext ->
+      dslContext.deleteFrom(rs).where(rs.SERIES_ID.`in`(it.selectTempStrings())).execute()
     }
   }
 
@@ -166,28 +162,28 @@ class ReadProgressDao(
     bookIds: Collection<String>,
     userId: String,
   ) {
-    dslRW.withTempTable(batchSize, bookIds).use { tempTable ->
-      dslRW
+    dslContext.withTempTable(batchSize, bookIds) { tempTable, dslContext ->
+      dslContext
         .deleteFrom(r)
         .where(r.BOOK_ID.`in`(tempTable.selectTempStrings()))
         .and(r.USER_ID.eq(userId))
         .execute()
-      dslRW.aggregateSeriesProgress(tempTable, userId)
+      dslContext.aggregateSeriesProgress(tempTable, userId)
     }
   }
 
   @Transactional
   override fun deleteAll() {
-    dslRW.deleteFrom(r).execute()
-    dslRW.deleteFrom(rs).execute()
+    dslContext.deleteFrom(r).execute()
+    dslContext.deleteFrom(rs).execute()
   }
 
   private fun DSLContext.aggregateSeriesProgress(
     bookIds: Collection<String>,
     userId: String? = null,
   ) {
-    this.withTempTable(batchSize, bookIds).use { tempTable ->
-      this.aggregateSeriesProgress(tempTable, userId)
+    this.withTempTable(batchSize, bookIds) { tempTable, ctx ->
+      ctx.aggregateSeriesProgress(tempTable, userId)
     }
   }
 

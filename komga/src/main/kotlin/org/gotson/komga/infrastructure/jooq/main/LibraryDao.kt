@@ -2,14 +2,12 @@ package org.gotson.komga.infrastructure.jooq.main
 
 import org.gotson.komga.domain.model.Library
 import org.gotson.komga.domain.persistence.LibraryRepository
-import org.gotson.komga.infrastructure.jooq.SplitDslDaoBase
 import org.gotson.komga.jooq.main.Tables
 import org.gotson.komga.jooq.main.tables.records.LibraryRecord
 import org.gotson.komga.language.toCurrentTimeZone
 import org.jooq.DSLContext
 import org.jooq.Record
 import org.jooq.ResultQuery
-import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
 import java.net.URL
@@ -18,10 +16,8 @@ import java.time.ZoneId
 
 @Component
 class LibraryDao(
-  dslRW: DSLContext,
-  @Qualifier("dslContextRO") dslRO: DSLContext,
-) : SplitDslDaoBase(dslRW, dslRO),
-  LibraryRepository {
+  val dslContext: DSLContext,
+) : LibraryRepository {
   private val l = Tables.LIBRARY
   private val ul = Tables.USER_LIBRARY_SHARING
   private val le = Tables.LIBRARY_EXCLUSIONS
@@ -37,17 +33,17 @@ class LibraryDao(
       .first()
 
   private fun findOne(libraryId: String) =
-    dslRO
+    dslContext
       .selectBase()
       .where(l.ID.eq(libraryId))
 
   override fun findAll(): Collection<Library> =
-    dslRO
+    dslContext
       .selectBase()
       .fetchAndMap()
 
   override fun findAllByIds(libraryIds: Collection<String>): Collection<Library> =
-    dslRO
+    dslContext
       .selectBase()
       .where(l.ID.`in`(libraryIds))
       .fetchAndMap()
@@ -67,21 +63,21 @@ class LibraryDao(
 
   @Transactional
   override fun delete(libraryId: String) {
-    dslRW.deleteFrom(le).where(le.LIBRARY_ID.eq(libraryId)).execute()
-    dslRW.deleteFrom(ul).where(ul.LIBRARY_ID.eq(libraryId)).execute()
-    dslRW.deleteFrom(l).where(l.ID.eq(libraryId)).execute()
+    dslContext.deleteFrom(le).where(le.LIBRARY_ID.eq(libraryId)).execute()
+    dslContext.deleteFrom(ul).where(ul.LIBRARY_ID.eq(libraryId)).execute()
+    dslContext.deleteFrom(l).where(l.ID.eq(libraryId)).execute()
   }
 
   @Transactional
   override fun deleteAll() {
-    dslRW.deleteFrom(le).execute()
-    dslRW.deleteFrom(ul).execute()
-    dslRW.deleteFrom(l).execute()
+    dslContext.deleteFrom(le).execute()
+    dslContext.deleteFrom(ul).execute()
+    dslContext.deleteFrom(l).execute()
   }
 
   @Transactional
   override fun insert(library: Library) {
-    dslRW
+    dslContext
       .insertInto(l)
       .set(l.ID, library.id)
       .set(l.NAME, library.name)
@@ -114,12 +110,12 @@ class LibraryDao(
       .set(l.UNAVAILABLE_DATE, library.unavailableDate)
       .execute()
 
-    dslRW.insertDirectoryExclusions(library)
+    dslContext.insertDirectoryExclusions(library)
   }
 
   @Transactional
   override fun update(library: Library) {
-    dslRW
+    dslContext
       .update(l)
       .set(l.NAME, library.name)
       .set(l.ROOT, library.root.toString())
@@ -153,11 +149,11 @@ class LibraryDao(
       .where(l.ID.eq(library.id))
       .execute()
 
-    dslRW.deleteFrom(le).where(le.LIBRARY_ID.eq(library.id)).execute()
-    dslRW.insertDirectoryExclusions(library)
+    dslContext.deleteFrom(le).where(le.LIBRARY_ID.eq(library.id)).execute()
+    dslContext.insertDirectoryExclusions(library)
   }
 
-  override fun count(): Long = dslRO.fetchCount(l).toLong()
+  override fun count(): Long = dslContext.fetchCount(l).toLong()
 
   private fun DSLContext.insertDirectoryExclusions(library: Library) {
     if (library.scanDirectoryExclusions.isNotEmpty()) {

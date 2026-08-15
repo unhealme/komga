@@ -8,7 +8,6 @@ import org.gotson.komga.domain.model.SearchContext
 import org.gotson.komga.domain.persistence.ReferentialRepository
 import org.gotson.komga.infrastructure.jooq.ContentRestrictionsSearchHelper
 import org.gotson.komga.infrastructure.jooq.RequiredJoin
-import org.gotson.komga.infrastructure.jooq.SplitDslDaoBase
 import org.gotson.komga.infrastructure.jooq.buildPage
 import org.gotson.komga.infrastructure.jooq.udfStripAccents
 import org.gotson.komga.infrastructure.jooq.unicode3
@@ -18,6 +17,7 @@ import org.gotson.komga.jooq.main.tables.records.BookMetadataAuthorRecord
 import org.gotson.komga.language.stripAccents
 import org.jooq.Condition
 import org.jooq.DSLContext
+import org.jooq.Field
 import org.jooq.OrderField
 import org.jooq.SelectFieldOrAsterisk
 import org.jooq.TableField
@@ -25,7 +25,6 @@ import org.jooq.impl.DSL
 import org.jooq.impl.DSL.select
 import org.jooq.impl.TableImpl
 import org.jooq.impl.TableRecordImpl
-import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.PageImpl
 import org.springframework.data.domain.PageRequest
@@ -37,10 +36,8 @@ import java.time.LocalDate
 
 @Component
 class ReferentialDao(
-  dslRW: DSLContext,
-  @Qualifier("dslContextRO") dslRO: DSLContext,
-) : SplitDslDaoBase(dslRW, dslRO),
-  ReferentialRepository {
+  val dslContext: DSLContext,
+) : ReferentialRepository {
   private val a = Tables.BOOK_METADATA_AUTHOR
   private val sd = Tables.SERIES_METADATA
   private val bma = Tables.BOOK_METADATA_AGGREGATION
@@ -61,12 +58,13 @@ class ReferentialDao(
     search: String,
     filterOnLibraryIds: Collection<String>?,
   ): List<Author> =
-    dslRO
-      .selectDistinct(a.NAME, a.ROLE)
+    dslContext
+      .select(a.NAME, a.ROLE)
       .from(a)
       .apply { filterOnLibraryIds?.let { leftJoin(b).on(a.BOOK_ID.eq(b.ID)) } }
       .where(a.NAME.udfStripAccents().contains(search.stripAccents()))
       .apply { filterOnLibraryIds?.let { and(b.LIBRARY_ID.`in`(it)) } }
+      .groupBy(a.NAME, a.ROLE)
       .orderBy(a.NAME.unicode3())
       .fetchInto(a)
       .map { it.toDomain() }
@@ -77,14 +75,15 @@ class ReferentialDao(
     libraryId: String,
     filterOnLibraryIds: Collection<String>?,
   ): List<Author> =
-    dslRO
-      .selectDistinct(bmaa.NAME, bmaa.ROLE)
+    dslContext
+      .select(bmaa.NAME, bmaa.ROLE)
       .from(bmaa)
       .leftJoin(s)
       .on(bmaa.SERIES_ID.eq(s.ID))
       .where(bmaa.NAME.udfStripAccents().contains(search.stripAccents()))
       .and(s.LIBRARY_ID.eq(libraryId))
       .apply { filterOnLibraryIds?.let { and(s.LIBRARY_ID.`in`(it)) } }
+      .groupBy(bmaa.NAME, bmaa.ROLE)
       .orderBy(bmaa.NAME.unicode3())
       .fetchInto(bmaa)
       .map { it.toDomain() }
@@ -95,8 +94,8 @@ class ReferentialDao(
     collectionId: String,
     filterOnLibraryIds: Collection<String>?,
   ): List<Author> =
-    dslRO
-      .selectDistinct(bmaa.NAME, bmaa.ROLE)
+    dslContext
+      .select(bmaa.NAME, bmaa.ROLE)
       .from(bmaa)
       .leftJoin(cs)
       .on(bmaa.SERIES_ID.eq(cs.SERIES_ID))
@@ -104,6 +103,7 @@ class ReferentialDao(
       .where(bmaa.NAME.udfStripAccents().contains(search.stripAccents()))
       .and(cs.COLLECTION_ID.eq(collectionId))
       .apply { filterOnLibraryIds?.let { and(s.LIBRARY_ID.`in`(it)) } }
+      .groupBy(bmaa.NAME, bmaa.ROLE)
       .orderBy(bmaa.NAME.unicode3())
       .fetchInto(bmaa)
       .map { it.toDomain() }
@@ -114,13 +114,14 @@ class ReferentialDao(
     seriesId: String,
     filterOnLibraryIds: Collection<String>?,
   ): List<Author> =
-    dslRO
-      .selectDistinct(bmaa.NAME, bmaa.ROLE)
+    dslContext
+      .select(bmaa.NAME, bmaa.ROLE)
       .from(bmaa)
       .apply { filterOnLibraryIds?.let { leftJoin(s).on(bmaa.SERIES_ID.eq(s.ID)) } }
       .where(bmaa.NAME.udfStripAccents().contains(search.stripAccents()))
       .and(bmaa.SERIES_ID.eq(seriesId))
       .apply { filterOnLibraryIds?.let { and(s.LIBRARY_ID.`in`(it)) } }
+      .groupBy(bmaa.NAME, bmaa.ROLE)
       .orderBy(bmaa.NAME.unicode3())
       .fetchInto(bmaa)
       .map { it.toDomain() }
@@ -152,18 +153,19 @@ class ReferentialDao(
     search: String,
     filterOnLibraryIds: Collection<String>?,
   ): List<String> =
-    dslRO
-      .selectDistinct(a.NAME)
+    dslContext
+      .select(a.NAME)
       .from(a)
       .apply { filterOnLibraryIds?.let { leftJoin(b).on(a.BOOK_ID.eq(b.ID)) } }
       .where(a.NAME.udfStripAccents().contains(search.stripAccents()))
       .apply { filterOnLibraryIds?.let { and(b.LIBRARY_ID.`in`(it)) } }
+      .groupBy(a.NAME)
       .orderBy(a.NAME.unicode3())
       .fetch(a.NAME)
 
   @Deprecated("Use findAuthorsRoles instead")
   override fun findAllAuthorsRoles(filterOnLibraryIds: Collection<String>?): List<String> =
-    dslRO
+    dslContext
       .selectDistinct(a.ROLE)
       .from(a)
       .apply {
@@ -177,8 +179,8 @@ class ReferentialDao(
 
   @Deprecated("Use findGenres instead")
   override fun findAllGenres(filterOnLibraryIds: Collection<String>?): Set<String> =
-    dslRO
-      .selectDistinct(g.GENRE)
+    dslContext
+      .select(g.GENRE)
       .from(g)
       .apply {
         filterOnLibraryIds?.let {
@@ -186,7 +188,8 @@ class ReferentialDao(
             .on(g.SERIES_ID.eq(s.ID))
             .where(s.LIBRARY_ID.`in`(it))
         }
-      }.orderBy(g.GENRE.unicode3())
+      }.groupBy(g.GENRE)
+      .orderBy(g.GENRE.unicode3())
       .fetchSet(g.GENRE)
 
   @Deprecated("Use findGenres instead")
@@ -194,13 +197,14 @@ class ReferentialDao(
     libraryIds: Set<String>,
     filterOnLibraryIds: Collection<String>?,
   ): Set<String> =
-    dslRO
-      .selectDistinct(g.GENRE)
+    dslContext
+      .select(g.GENRE)
       .from(g)
       .leftJoin(s)
       .on(g.SERIES_ID.eq(s.ID))
       .where(s.LIBRARY_ID.`in`(libraryIds))
       .apply { filterOnLibraryIds?.let { and(s.LIBRARY_ID.`in`(it)) } }
+      .groupBy(g.GENRE)
       .orderBy(g.GENRE.unicode3())
       .fetchSet(g.GENRE)
 
@@ -209,14 +213,15 @@ class ReferentialDao(
     collectionId: String,
     filterOnLibraryIds: Collection<String>?,
   ): Set<String> =
-    dslRO
-      .selectDistinct(g.GENRE)
+    dslContext
+      .select(g.GENRE)
       .from(g)
       .leftJoin(cs)
       .on(g.SERIES_ID.eq(cs.SERIES_ID))
       .apply { filterOnLibraryIds?.let { leftJoin(s).on(g.SERIES_ID.eq(s.ID)) } }
       .where(cs.COLLECTION_ID.eq(collectionId))
       .apply { filterOnLibraryIds?.let { and(s.LIBRARY_ID.`in`(it)) } }
+      .groupBy(g.GENRE)
       .orderBy(g.GENRE.unicode3())
       .fetchSet(g.GENRE)
 
@@ -233,7 +238,7 @@ class ReferentialDao(
 
   @Deprecated("Use findTags instead")
   override fun findAllSeriesAndBookTags(filterOnLibraryIds: Collection<String>?): Set<String> =
-    dslRO
+    dslContext
       .select(bt.TAG.`as`("tag"))
       .from(bt)
       .apply { filterOnLibraryIds?.let { leftJoin(b).on(bt.BOOK_ID.eq(b.ID)).where(b.LIBRARY_ID.`in`(it)) } }
@@ -250,7 +255,7 @@ class ReferentialDao(
     libraryIds: Set<String>,
     filterOnLibraryIds: Collection<String>?,
   ): Set<String> =
-    dslRO
+    dslContext
       .select(bt.TAG.`as`("tag"))
       .from(bt)
       .leftJoin(b)
@@ -273,7 +278,7 @@ class ReferentialDao(
     collectionId: String,
     filterOnLibraryIds: Collection<String>?,
   ): Set<String> =
-    dslRO
+    dslContext
       .select(bmat.TAG.`as`("tag"))
       .from(bmat)
       .leftJoin(s)
@@ -297,7 +302,7 @@ class ReferentialDao(
 
   @Deprecated("Use findTags instead")
   override fun findAllSeriesTags(filterOnLibraryIds: Collection<String>?): Set<String> =
-    dslRO
+    dslContext
       .select(st.TAG)
       .from(st)
       .apply {
@@ -314,7 +319,7 @@ class ReferentialDao(
     libraryId: String,
     filterOnLibraryIds: Collection<String>?,
   ): Set<String> =
-    dslRO
+    dslContext
       .select(st.TAG)
       .from(st)
       .leftJoin(s)
@@ -329,7 +334,7 @@ class ReferentialDao(
     seriesId: String,
     filterOnLibraryIds: Collection<String>?,
   ): Set<String> =
-    dslRO
+    dslContext
       .select(bt.TAG)
       .from(bt)
       .leftJoin(b)
@@ -344,7 +349,7 @@ class ReferentialDao(
     readListId: String,
     filterOnLibraryIds: Collection<String>?,
   ): Set<String> =
-    dslRO
+    dslContext
       .select(bt.TAG)
       .from(bt)
       .leftJoin(b)
@@ -374,7 +379,7 @@ class ReferentialDao(
     collectionId: String,
     filterOnLibraryIds: Collection<String>?,
   ): Set<String> =
-    dslRO
+    dslContext
       .select(st.TAG)
       .from(st)
       .leftJoin(cs)
@@ -387,7 +392,7 @@ class ReferentialDao(
 
   @Deprecated("Use findTags instead")
   override fun findAllBookTags(filterOnLibraryIds: Collection<String>?): Set<String> =
-    dslRO
+    dslContext
       .select(bt.TAG)
       .from(bt)
       .apply {
@@ -401,7 +406,7 @@ class ReferentialDao(
 
   @Deprecated("Use findLanguages instead")
   override fun findAllLanguages(filterOnLibraryIds: Collection<String>?): Set<String> =
-    dslRO
+    dslContext
       .selectDistinct(sd.LANGUAGE)
       .from(sd)
       .apply { filterOnLibraryIds?.let { leftJoin(s).on(sd.SERIES_ID.eq(s.ID)) } }
@@ -415,7 +420,7 @@ class ReferentialDao(
     libraryIds: Set<String>,
     filterOnLibraryIds: Collection<String>?,
   ): Set<String> =
-    dslRO
+    dslContext
       .selectDistinct(sd.LANGUAGE)
       .from(sd)
       .leftJoin(s)
@@ -431,7 +436,7 @@ class ReferentialDao(
     collectionId: String,
     filterOnLibraryIds: Collection<String>?,
   ): Set<String> =
-    dslRO
+    dslContext
       .selectDistinct(sd.LANGUAGE)
       .from(sd)
       .leftJoin(cs)
@@ -456,12 +461,13 @@ class ReferentialDao(
 
   @Deprecated("Use findPublishers instead")
   override fun findAllPublishers(filterOnLibraryIds: Collection<String>?): Set<String> =
-    dslRO
-      .selectDistinct(sd.PUBLISHER)
+    dslContext
+      .select(sd.PUBLISHER)
       .from(sd)
       .apply { filterOnLibraryIds?.let { leftJoin(s).on(sd.SERIES_ID.eq(s.ID)) } }
       .where(sd.PUBLISHER.ne(""))
       .apply { filterOnLibraryIds?.let { and(s.LIBRARY_ID.`in`(it)) } }
+      .groupBy(sd.PUBLISHER)
       .orderBy(sd.PUBLISHER.unicode3())
       .fetchSet(sd.PUBLISHER)
 
@@ -471,14 +477,15 @@ class ReferentialDao(
     pageable: Pageable,
   ): Page<String> {
     val query =
-      dslRO
-        .selectDistinct(sd.PUBLISHER)
+      dslContext
+        .select(sd.PUBLISHER)
         .from(sd)
         .apply { filterOnLibraryIds?.let { leftJoin(s).on(sd.SERIES_ID.eq(s.ID)) } }
         .where(sd.PUBLISHER.ne(""))
         .apply { filterOnLibraryIds?.let { and(s.LIBRARY_ID.`in`(it)) } }
+        .groupBy(sd.PUBLISHER)
 
-    val count = dslRO.fetchCount(query)
+    val count = dslContext.fetchCount(query)
     val sort = sd.PUBLISHER.unicode3()
 
     val items =
@@ -503,14 +510,15 @@ class ReferentialDao(
     libraryIds: Set<String>,
     filterOnLibraryIds: Collection<String>?,
   ): Set<String> =
-    dslRO
-      .selectDistinct(sd.PUBLISHER)
+    dslContext
+      .select(sd.PUBLISHER)
       .from(sd)
       .leftJoin(s)
       .on(sd.SERIES_ID.eq(s.ID))
       .where(sd.PUBLISHER.ne(""))
       .and(s.LIBRARY_ID.`in`(libraryIds))
       .apply { filterOnLibraryIds?.let { and(s.LIBRARY_ID.`in`(it)) } }
+      .groupBy(sd.PUBLISHER)
       .orderBy(sd.PUBLISHER.unicode3())
       .fetchSet(sd.PUBLISHER)
 
@@ -519,8 +527,8 @@ class ReferentialDao(
     collectionId: String,
     filterOnLibraryIds: Collection<String>?,
   ): Set<String> =
-    dslRO
-      .selectDistinct(sd.PUBLISHER)
+    dslContext
+      .select(sd.PUBLISHER)
       .from(sd)
       .leftJoin(cs)
       .on(sd.SERIES_ID.eq(cs.SERIES_ID))
@@ -528,6 +536,7 @@ class ReferentialDao(
       .where(sd.PUBLISHER.ne(""))
       .and(cs.COLLECTION_ID.eq(collectionId))
       .apply { filterOnLibraryIds?.let { and(s.LIBRARY_ID.`in`(it)) } }
+      .groupBy(sd.PUBLISHER)
       .orderBy(sd.PUBLISHER.unicode3())
       .fetchSet(sd.PUBLISHER)
 
@@ -544,7 +553,7 @@ class ReferentialDao(
 
   @Deprecated("Use findAgeRatings instead")
   override fun findAllAgeRatings(filterOnLibraryIds: Collection<String>?): Set<Int?> =
-    dslRO
+    dslContext
       .selectDistinct(sd.AGE_RATING)
       .from(sd)
       .apply {
@@ -561,7 +570,7 @@ class ReferentialDao(
     libraryIds: Set<String>,
     filterOnLibraryIds: Collection<String>?,
   ): Set<Int?> =
-    dslRO
+    dslContext
       .selectDistinct(sd.AGE_RATING)
       .from(sd)
       .leftJoin(s)
@@ -576,7 +585,7 @@ class ReferentialDao(
     collectionId: String,
     filterOnLibraryIds: Collection<String>?,
   ): Set<Int?> =
-    dslRO
+    dslContext
       .selectDistinct(sd.AGE_RATING)
       .from(sd)
       .leftJoin(cs)
@@ -599,7 +608,7 @@ class ReferentialDao(
 
   @Deprecated("Use findSeriesReleaseDates instead")
   override fun findAllSeriesReleaseDates(filterOnLibraryIds: Collection<String>?): Set<LocalDate> =
-    dslRO
+    dslContext
       .selectDistinct(bma.RELEASE_DATE)
       .from(bma)
       .apply { filterOnLibraryIds?.let { leftJoin(s).on(bma.SERIES_ID.eq(s.ID)) } }
@@ -613,7 +622,7 @@ class ReferentialDao(
     libraryIds: Set<String>,
     filterOnLibraryIds: Collection<String>?,
   ): Set<LocalDate> =
-    dslRO
+    dslContext
       .selectDistinct(bma.RELEASE_DATE)
       .from(bma)
       .leftJoin(s)
@@ -629,7 +638,7 @@ class ReferentialDao(
     collectionId: String,
     filterOnLibraryIds: Collection<String>?,
   ): Set<LocalDate> =
-    dslRO
+    dslContext
       .selectDistinct(bma.RELEASE_DATE)
       .from(bma)
       .leftJoin(cs)
@@ -651,7 +660,7 @@ class ReferentialDao(
     val sortField = bma.RELEASE_DATE.desc()
     val restrictionCondition = ContentRestrictionsSearchHelper(context.restrictions).toCondition()
     val query =
-      dslRO
+      dslContext
         .selectDistinct(DSL.year(bma.RELEASE_DATE))
         .from(bma)
         .apply {
@@ -687,7 +696,7 @@ class ReferentialDao(
             }
           }
         }
-    val count = dslRO.fetchCount(query)
+    val count = dslContext.fetchCount(query)
     val items =
       query
         .orderBy(sortField)
@@ -699,8 +708,8 @@ class ReferentialDao(
 
   @Deprecated("Use findSharingLabels instead")
   override fun findAllSharingLabels(filterOnLibraryIds: Collection<String>?): Set<String> =
-    dslRO
-      .selectDistinct(sl.LABEL)
+    dslContext
+      .select(sl.LABEL)
       .from(sl)
       .apply {
         filterOnLibraryIds?.let {
@@ -708,7 +717,8 @@ class ReferentialDao(
             .on(sl.SERIES_ID.eq(s.ID))
             .where(s.LIBRARY_ID.`in`(it))
         }
-      }.orderBy(sl.LABEL.unicode3())
+      }.groupBy(sl.LABEL)
+      .orderBy(sl.LABEL.unicode3())
       .fetchSet(sl.LABEL)
 
   @Deprecated("Use findSharingLabels instead")
@@ -716,13 +726,14 @@ class ReferentialDao(
     libraryIds: Set<String>,
     filterOnLibraryIds: Collection<String>?,
   ): Set<String> =
-    dslRO
-      .selectDistinct(sl.LABEL)
+    dslContext
+      .select(sl.LABEL)
       .from(sl)
       .leftJoin(s)
       .on(sl.SERIES_ID.eq(s.ID))
       .where(s.LIBRARY_ID.`in`(libraryIds))
       .apply { filterOnLibraryIds?.let { and(s.LIBRARY_ID.`in`(it)) } }
+      .groupBy(sl.LABEL)
       .orderBy(sl.LABEL.unicode3())
       .fetchSet(sl.LABEL)
 
@@ -731,14 +742,15 @@ class ReferentialDao(
     collectionId: String,
     filterOnLibraryIds: Collection<String>?,
   ): Set<String> =
-    dslRO
-      .selectDistinct(sl.LABEL)
+    dslContext
+      .select(sl.LABEL)
       .from(sl)
       .leftJoin(cs)
       .on(sl.SERIES_ID.eq(cs.SERIES_ID))
       .apply { filterOnLibraryIds?.let { leftJoin(s).on(sl.SERIES_ID.eq(s.ID)) } }
       .where(cs.COLLECTION_ID.eq(collectionId))
       .apply { filterOnLibraryIds?.let { and(s.LIBRARY_ID.`in`(it)) } }
+      .groupBy(sl.LABEL)
       .orderBy(sl.LABEL.unicode3())
       .fetchSet(sl.LABEL)
 
@@ -779,9 +791,13 @@ class ReferentialDao(
     val effectiveSeriesIdField = seriesIdField ?: b.SERIES_ID
     val effectiveBookIdField = bookIdField ?: b.ID
 
+    val fields = (listOfNotNull(searchableField) + extraFields).toTypedArray()
+    val nonAsteriskFields = fields.filter { it != DSL.asterisk() }.map { it as Field<*> }.toTypedArray()
+    val hasAsterisk = fields.count() != nonAsteriskFields.count()
+    val selectQuery = dslContext.let { if (hasAsterisk) it.selectDistinct(*fields) else it.select(*nonAsteriskFields) }
+
     val query =
-      dslRO
-        .selectDistinct(*(listOfNotNull(searchableField) + extraFields).toTypedArray())
+      selectQuery
         .from(table)
         .apply { if (seriesIdRequired && seriesIdField == null) innerJoin(b).on(bookIdField!!.eq(b.ID)) }
         .apply { if (bookIdRequired && bookIdField == null) innerJoin(b).on(seriesIdField!!.eq(b.SERIES_ID)) }
@@ -818,8 +834,9 @@ class ReferentialDao(
             }
           }
         }
+        .apply { if (!hasAsterisk) groupBy(*nonAsteriskFields) }
 
-    val count = dslRO.fetchCount(query)
+    val count = dslContext.fetchCount(query)
 
     val items =
       query

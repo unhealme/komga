@@ -4,13 +4,11 @@ import org.gotson.komga.domain.model.AlternateTitle
 import org.gotson.komga.domain.model.SeriesMetadata
 import org.gotson.komga.domain.model.WebLink
 import org.gotson.komga.domain.persistence.SeriesMetadataRepository
-import org.gotson.komga.infrastructure.jooq.SplitDslDaoBase
 import org.gotson.komga.infrastructure.jooq.TempTable.Companion.withTempTable
 import org.gotson.komga.jooq.main.Tables
 import org.gotson.komga.jooq.main.tables.records.SeriesMetadataRecord
 import org.gotson.komga.language.toCurrentTimeZone
 import org.jooq.DSLContext
-import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
@@ -20,11 +18,9 @@ import java.time.ZoneId
 
 @Component
 class SeriesMetadataDao(
-  dslRW: DSLContext,
-  @Qualifier("dslContextRO") dslRO: DSLContext,
+  val dslContext: DSLContext,
   @param:Value("#{@komgaProperties.database.batchChunkSize}") private val batchSize: Int,
-) : SplitDslDaoBase(dslRW, dslRO),
-  SeriesMetadataRepository {
+) : SeriesMetadataRepository {
   private val d = Tables.SERIES_METADATA
   private val g = Tables.SERIES_METADATA_GENRE
   private val st = Tables.SERIES_METADATA_TAG
@@ -32,9 +28,9 @@ class SeriesMetadataDao(
   private val slk = Tables.SERIES_METADATA_LINK
   private val sat = Tables.SERIES_METADATA_ALTERNATE_TITLE
 
-  override fun findById(seriesId: String): SeriesMetadata = dslRO.findOne(seriesId)!!.toDomain(dslRO.findGenres(seriesId), dslRO.findTags(seriesId), dslRO.findSharingLabels(seriesId), dslRO.findLinks(seriesId), dslRO.findAlternateTitles(seriesId))
+  override fun findById(seriesId: String): SeriesMetadata = dslContext.findOne(seriesId)!!.toDomain(dslContext.findGenres(seriesId), dslContext.findTags(seriesId), dslContext.findSharingLabels(seriesId), dslContext.findLinks(seriesId), dslContext.findAlternateTitles(seriesId))
 
-  override fun findByIdOrNull(seriesId: String): SeriesMetadata? = dslRO.findOne(seriesId)?.toDomain(dslRO.findGenres(seriesId), dslRO.findTags(seriesId), dslRO.findSharingLabels(seriesId), dslRO.findLinks(seriesId), dslRO.findAlternateTitles(seriesId))
+  override fun findByIdOrNull(seriesId: String): SeriesMetadata? = dslContext.findOne(seriesId)?.toDomain(dslContext.findGenres(seriesId), dslContext.findTags(seriesId), dslContext.findSharingLabels(seriesId), dslContext.findLinks(seriesId), dslContext.findAlternateTitles(seriesId))
 
   private fun DSLContext.findOne(seriesId: String) =
     this
@@ -81,7 +77,7 @@ class SeriesMetadataDao(
 
   @Transactional
   override fun insert(metadata: SeriesMetadata) {
-    dslRW
+    dslContext
       .insertInto(d)
       .set(d.SERIES_ID, metadata.seriesId)
       .set(d.STATUS, metadata.status.toString())
@@ -109,16 +105,16 @@ class SeriesMetadataDao(
       .set(d.ALTERNATE_TITLES_LOCK, metadata.alternateTitlesLock)
       .execute()
 
-    dslRW.insertGenres(metadata)
-    dslRW.insertTags(metadata)
-    dslRW.insertSharingLabels(metadata)
-    dslRW.insertLinks(metadata)
-    dslRW.insertAlternateTitles(metadata)
+    dslContext.insertGenres(metadata)
+    dslContext.insertTags(metadata)
+    dslContext.insertSharingLabels(metadata)
+    dslContext.insertLinks(metadata)
+    dslContext.insertAlternateTitles(metadata)
   }
 
   @Transactional
   override fun update(metadata: SeriesMetadata) {
-    dslRW
+    dslContext
       .update(d)
       .set(d.STATUS, metadata.status.toString())
       .set(d.TITLE, metadata.title)
@@ -147,36 +143,36 @@ class SeriesMetadataDao(
       .where(d.SERIES_ID.eq(metadata.seriesId))
       .execute()
 
-    dslRW
+    dslContext
       .deleteFrom(g)
       .where(g.SERIES_ID.eq(metadata.seriesId))
       .execute()
 
-    dslRW
+    dslContext
       .deleteFrom(st)
       .where(st.SERIES_ID.eq(metadata.seriesId))
       .execute()
 
-    dslRW
+    dslContext
       .deleteFrom(sl)
       .where(sl.SERIES_ID.eq(metadata.seriesId))
       .execute()
 
-    dslRW
+    dslContext
       .deleteFrom(slk)
       .where(slk.SERIES_ID.eq(metadata.seriesId))
       .execute()
 
-    dslRW
+    dslContext
       .deleteFrom(sat)
       .where(sat.SERIES_ID.eq(metadata.seriesId))
       .execute()
 
-    dslRW.insertGenres(metadata)
-    dslRW.insertTags(metadata)
-    dslRW.insertSharingLabels(metadata)
-    dslRW.insertLinks(metadata)
-    dslRW.insertAlternateTitles(metadata)
+    dslContext.insertGenres(metadata)
+    dslContext.insertTags(metadata)
+    dslContext.insertSharingLabels(metadata)
+    dslContext.insertLinks(metadata)
+    dslContext.insertAlternateTitles(metadata)
   }
 
   private fun DSLContext.insertGenres(metadata: SeriesMetadata) {
@@ -266,27 +262,27 @@ class SeriesMetadataDao(
 
   @Transactional
   override fun delete(seriesId: String) {
-    dslRW.deleteFrom(g).where(g.SERIES_ID.eq(seriesId)).execute()
-    dslRW.deleteFrom(st).where(st.SERIES_ID.eq(seriesId)).execute()
-    dslRW.deleteFrom(sl).where(sl.SERIES_ID.eq(seriesId)).execute()
-    dslRW.deleteFrom(slk).where(slk.SERIES_ID.eq(seriesId)).execute()
-    dslRW.deleteFrom(sat).where(sat.SERIES_ID.eq(seriesId)).execute()
-    dslRW.deleteFrom(d).where(d.SERIES_ID.eq(seriesId)).execute()
+    dslContext.deleteFrom(g).where(g.SERIES_ID.eq(seriesId)).execute()
+    dslContext.deleteFrom(st).where(st.SERIES_ID.eq(seriesId)).execute()
+    dslContext.deleteFrom(sl).where(sl.SERIES_ID.eq(seriesId)).execute()
+    dslContext.deleteFrom(slk).where(slk.SERIES_ID.eq(seriesId)).execute()
+    dslContext.deleteFrom(sat).where(sat.SERIES_ID.eq(seriesId)).execute()
+    dslContext.deleteFrom(d).where(d.SERIES_ID.eq(seriesId)).execute()
   }
 
   @Transactional
   override fun delete(seriesIds: Collection<String>) {
-    dslRW.withTempTable(batchSize, seriesIds).use {
-      dslRW.deleteFrom(g).where(g.SERIES_ID.`in`(it.selectTempStrings())).execute()
-      dslRW.deleteFrom(st).where(st.SERIES_ID.`in`(it.selectTempStrings())).execute()
-      dslRW.deleteFrom(sl).where(sl.SERIES_ID.`in`(it.selectTempStrings())).execute()
-      dslRW.deleteFrom(slk).where(slk.SERIES_ID.`in`(it.selectTempStrings())).execute()
-      dslRW.deleteFrom(sat).where(sat.SERIES_ID.`in`(it.selectTempStrings())).execute()
-      dslRW.deleteFrom(d).where(d.SERIES_ID.`in`(it.selectTempStrings())).execute()
+    dslContext.withTempTable(batchSize, seriesIds) { it, dslContext ->
+      dslContext.deleteFrom(g).where(g.SERIES_ID.`in`(it.selectTempStrings())).execute()
+      dslContext.deleteFrom(st).where(st.SERIES_ID.`in`(it.selectTempStrings())).execute()
+      dslContext.deleteFrom(sl).where(sl.SERIES_ID.`in`(it.selectTempStrings())).execute()
+      dslContext.deleteFrom(slk).where(slk.SERIES_ID.`in`(it.selectTempStrings())).execute()
+      dslContext.deleteFrom(sat).where(sat.SERIES_ID.`in`(it.selectTempStrings())).execute()
+      dslContext.deleteFrom(d).where(d.SERIES_ID.`in`(it.selectTempStrings())).execute()
     }
   }
 
-  override fun count(): Long = dslRO.fetchCount(d).toLong()
+  override fun count(): Long = dslContext.fetchCount(d).toLong()
 
   private fun SeriesMetadataRecord.toDomain(
     genres: Set<String>,

@@ -1,8 +1,6 @@
 komga:
   database:
-    file: "file:database?mode=memory"
-  tasks-db:
-    file: "file:tasks?mode=memory"
+    url: jdbc:postgresql://localhost:5432/komga?user=komga&password=komga
   cors.allowed-origins:
     - http://localhost:8081
     - http://localhost:3000

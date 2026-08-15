@@ -2,8 +2,11 @@ package org.gotson.komga.infrastructure.jooq
 
 import com.github.f4b6a3.tsid.TsidCreator
 import org.jooq.DSLContext
+import org.jooq.Name
 import org.jooq.impl.DSL
+import org.jooq.impl.SQLDataType.VARCHAR
 import java.io.Closeable
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Temporary table with a single STRING column.
@@ -14,27 +17,29 @@ import java.io.Closeable
  */
 class TempTable private constructor(
   private val dslContext: DSLContext,
-  val name: String,
+  private val name: Name,
 ) : Closeable {
   constructor(dslContext: DSLContext) : this(dslContext, generateName())
 
-  private var created = false
+  private val created = AtomicBoolean(false)
 
   fun create() {
-    dslContext.execute("CREATE TEMPORARY TABLE $name (STRING varchar NOT NULL);")
-    created = true
+    if (!created.get()) {
+      dslContext.createTemporaryTable(name).column(DSL.name("STRING"), VARCHAR.notNull()).execute()
+      created.set(true)
+    }
   }
 
   fun insertTempStrings(
     batchSize: Int,
     collection: Collection<String>,
   ) {
-    if (!created) create()
+    create()
     if (collection.isNotEmpty()) {
       collection.chunked(batchSize).forEach { chunk ->
         dslContext
           .batch(
-            dslContext.insertInto(DSL.table(DSL.name(name)), DSL.field(DSL.name("STRING"), String::class.java)).values(null as String?),
+            dslContext.insertInto(DSL.table(name), DSL.field(DSL.name("STRING"), String::class.java)).values(null as String?),
           ).also { step ->
             chunk.forEach {
               step.bind(it)
@@ -44,21 +49,33 @@ class TempTable private constructor(
     }
   }
 
-  fun selectTempStrings() = dslContext.select(DSL.field(DSL.name("STRING"), String::class.java)).from(DSL.table(DSL.name(name)))
+  fun selectTempStrings() = dslContext.select(DSL.field(DSL.name("STRING"), String::class.java)).from(name)
 
   override fun close() {
-    if (created) dslContext.dropTableIfExists(name).execute()
+    if (created.get()) {
+      dslContext.dropTableIfExists(name).execute()
+      created.set(false)
+    }
   }
 
   companion object {
-    private fun generateName() = "temp_${TsidCreator.getTsid256()}"
+    private fun generateName() = DSL.name("temp_${TsidCreator.getTsid256()}")
 
-    fun DSLContext.withTempTable(
+    fun <R> DSLContext.withTempTable(
       batchSize: Int,
       collection: Collection<String>,
-    ) = TempTable(this, generateName())
-      .also {
-        it.insertTempStrings(batchSize, collection)
+      block: (TempTable, DSLContext) -> R,
+    ): R {
+      return this.transactionResult { config ->
+        val ctx = config.dsl()
+        block(
+          TempTable(ctx, generateName())
+            .also {
+              it.insertTempStrings(batchSize, collection)
+            },
+          ctx,
+        )
       }
+    }
   }
 }

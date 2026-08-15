@@ -9,14 +9,14 @@ import org.springframework.transaction.annotation.Transactional
 
 @Component
 class HistoricalEventDao(
-  private val dslRW: DSLContext,
+  private val dslContext: DSLContext,
 ) : HistoricalEventRepository {
   private val e = Tables.HISTORICAL_EVENT
   private val ep = Tables.HISTORICAL_EVENT_PROPERTIES
 
   @Transactional
   override fun insert(event: HistoricalEvent) {
-    dslRW
+    dslContext
       .insertInto(e)
       .set(e.ID, event.id)
       .set(e.TYPE, event.type)
@@ -26,9 +26,9 @@ class HistoricalEventDao(
       .execute()
 
     if (event.properties.isNotEmpty()) {
-      dslRW
+      dslContext
         .batch(
-          dslRW
+          dslContext
             .insertInto(ep, ep.ID, ep.KEY, ep.VALUE)
             .values(null as String?, null, null),
         ).also { step ->

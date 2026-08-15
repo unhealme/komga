@@ -19,31 +19,17 @@ import javax.sql.DataSource
 // as advised in https://docs.spring.io/spring-boot/docs/3.1.4/reference/htmlsingle/#howto.data-access.configure-jooq-with-multiple-datasources
 @Configuration
 class KomgaJooqConfiguration {
-  @Bean("dslContextRW")
+  @Bean("dslContext")
   @Primary
-  fun mainDslContextRW(
+  fun mainDslContext(
     dataSource: DataSource,
     transactionProvider: ObjectProvider<TransactionProvider?>,
     executeListenerProviders: ObjectProvider<ExecuteListenerProvider?>,
   ): DSLContext = createDslContext(dataSource, transactionProvider, executeListenerProviders)
 
-  @Bean("dslContextRO")
-  fun mainDslContextRO(
-    @Qualifier("sqliteDataSourceRO") dataSource: DataSource,
-    transactionProvider: ObjectProvider<TransactionProvider?>,
-    executeListenerProviders: ObjectProvider<ExecuteListenerProvider?>,
-  ): DSLContext = createDslContext(dataSource, transactionProvider, executeListenerProviders)
-
-  @Bean("tasksDslContextRW")
-  fun tasksDslContextRW(
-    @Qualifier("tasksDataSourceRW") dataSource: DataSource,
-    transactionProvider: ObjectProvider<TransactionProvider?>,
-    executeListenerProviders: ObjectProvider<ExecuteListenerProvider?>,
-  ): DSLContext = createDslContext(dataSource, transactionProvider, executeListenerProviders)
-
-  @Bean("tasksDslContextRO")
-  fun tasksDslContextRO(
-    @Qualifier("tasksDataSourceRO") dataSource: DataSource,
+  @Bean("tasksDslContext")
+  fun tasksDslContext(
+    @Qualifier("tasksDataSource") dataSource: DataSource,
     transactionProvider: ObjectProvider<TransactionProvider?>,
     executeListenerProviders: ObjectProvider<ExecuteListenerProvider?>,
   ): DSLContext = createDslContext(dataSource, transactionProvider, executeListenerProviders)
@@ -54,7 +40,7 @@ class KomgaJooqConfiguration {
     executeListenerProviders: ObjectProvider<ExecuteListenerProvider?>,
   ) = DefaultDSLContext(
     DefaultConfiguration().also { configuration ->
-      configuration.set(SQLDialect.SQLITE)
+      configuration.set(SQLDialect.POSTGRES)
       configuration.set(DataSourceConnectionProvider(TransactionAwareDataSourceProxy(dataSource)))
       transactionProvider.ifAvailable { newTransactionProvider: TransactionProvider? -> configuration.set(newTransactionProvider) }
       configuration.set(*executeListenerProviders.orderedStream().toList().toTypedArray())

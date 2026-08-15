@@ -1,12 +1,10 @@
 package org.gotson.komga.infrastructure.jooq.main
 
-import org.gotson.komga.infrastructure.jooq.SplitDslDaoBase
 import org.gotson.komga.infrastructure.jooq.toOrderBy
 import org.gotson.komga.interfaces.api.persistence.HistoricalEventDtoRepository
 import org.gotson.komga.interfaces.api.rest.dto.HistoricalEventDto
 import org.gotson.komga.jooq.main.Tables
 import org.jooq.DSLContext
-import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.PageImpl
 import org.springframework.data.domain.PageRequest
@@ -16,10 +14,8 @@ import org.springframework.stereotype.Component
 
 @Component
 class HistoricalEventDtoDao(
-  dslRW: DSLContext,
-  @Qualifier("dslContextRO") dslRO: DSLContext,
-) : SplitDslDaoBase(dslRW, dslRO),
-  HistoricalEventDtoRepository {
+  val dslContext: DSLContext,
+) : HistoricalEventDtoRepository {
   private val e = Tables.HISTORICAL_EVENT
   private val ep = Tables.HISTORICAL_EVENT_PROPERTIES
 
@@ -32,17 +28,17 @@ class HistoricalEventDtoDao(
     )
 
   override fun findAll(pageable: Pageable): Page<HistoricalEventDto> {
-    val count = dslRO.fetchCount(e)
+    val count = dslContext.fetchCount(e)
 
     val orderBy = pageable.sort.toOrderBy(sorts)
 
     val items =
-      dslRO
+      dslContext
         .selectFrom(e)
         .orderBy(orderBy)
         .apply { if (pageable.isPaged) limit(pageable.pageSize).offset(pageable.offset) }
         .map { er ->
-          val epr = dslRO.selectFrom(ep).where(ep.ID.eq(er.id)).fetch()
+          val epr = dslContext.selectFrom(ep).where(ep.ID.eq(er.id)).fetch()
           HistoricalEventDto(
             id = er.id,
             type = er.type,

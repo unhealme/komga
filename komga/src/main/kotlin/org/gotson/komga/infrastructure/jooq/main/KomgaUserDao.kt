@@ -7,14 +7,12 @@ import org.gotson.komga.domain.model.ContentRestrictions
 import org.gotson.komga.domain.model.KomgaUser
 import org.gotson.komga.domain.model.UserRoles
 import org.gotson.komga.domain.persistence.KomgaUserRepository
-import org.gotson.komga.infrastructure.jooq.SplitDslDaoBase
 import org.gotson.komga.jooq.main.Tables
 import org.gotson.komga.jooq.main.tables.records.UserApiKeyRecord
 import org.gotson.komga.language.toCurrentTimeZone
 import org.jooq.DSLContext
 import org.jooq.Record
 import org.jooq.ResultQuery
-import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
 import java.time.LocalDateTime
@@ -22,10 +20,8 @@ import java.time.ZoneId
 
 @Component
 class KomgaUserDao(
-  dslRW: DSLContext,
-  @Qualifier("dslContextRO") dslRO: DSLContext,
-) : SplitDslDaoBase(dslRW, dslRO),
-  KomgaUserRepository {
+  val dslContext: DSLContext,
+) : KomgaUserRepository {
   private val u = Tables.USER
   private val ur = Tables.USER_ROLE
   private val ul = Tables.USER_LIBRARY_SHARING
@@ -33,15 +29,15 @@ class KomgaUserDao(
   private val ar = Tables.ANNOUNCEMENTS_READ
   private val uak = Tables.USER_API_KEY
 
-  override fun count(): Long = dslRO.fetchCount(u).toLong()
+  override fun count(): Long = dslContext.fetchCount(u).toLong()
 
   override fun findAll(): Collection<KomgaUser> =
-    dslRO
+    dslContext
       .selectBase()
-      .fetchAndMap(dslRO)
+      .fetchAndMap(dslContext)
 
   override fun findApiKeyByUserId(userId: String): Collection<ApiKey> =
-    dslRO
+    dslContext
       .selectFrom(uak)
       .where(uak.USER_ID.eq(userId))
       .fetchInto(uak)
@@ -50,10 +46,10 @@ class KomgaUserDao(
       }
 
   override fun findByIdOrNull(id: String): KomgaUser? =
-    dslRO
+    dslContext
       .selectBase()
       .where(u.ID.equal(id))
-      .fetchAndMap(dslRO)
+      .fetchAndMap(dslContext)
       .firstOrNull()
 
   private fun DSLContext.selectBase() =
@@ -102,7 +98,7 @@ class KomgaUserDao(
 
   @Transactional
   override fun insert(user: KomgaUser) {
-    dslRW
+    dslContext
       .insertInto(u)
       .set(u.ID, user.id)
       .set(u.EMAIL, user.email)
@@ -118,13 +114,13 @@ class KomgaUserDao(
         },
       ).execute()
 
-    dslRW.insertRoles(user)
-    dslRW.insertSharedLibraries(user)
-    dslRW.insertSharingRestrictions(user)
+    dslContext.insertRoles(user)
+    dslContext.insertSharedLibraries(user)
+    dslContext.insertSharingRestrictions(user)
   }
 
   override fun insert(apiKey: ApiKey) {
-    dslRW
+    dslContext
       .insertInto(uak)
       .set(uak.ID, apiKey.id)
       .set(uak.USER_ID, apiKey.userId)
@@ -135,7 +131,7 @@ class KomgaUserDao(
 
   @Transactional
   override fun update(user: KomgaUser) {
-    dslRW
+    dslContext
       .update(u)
       .set(u.EMAIL, user.email)
       .set(u.PASSWORD, user.password)
@@ -152,34 +148,34 @@ class KomgaUserDao(
       .where(u.ID.eq(user.id))
       .execute()
 
-    dslRW
+    dslContext
       .deleteFrom(ur)
       .where(ur.USER_ID.eq(user.id))
       .execute()
 
-    dslRW
+    dslContext
       .deleteFrom(ul)
       .where(ul.USER_ID.eq(user.id))
       .execute()
 
-    dslRW
+    dslContext
       .deleteFrom(us)
       .where(us.USER_ID.eq(user.id))
       .execute()
 
-    dslRW.insertRoles(user)
-    dslRW.insertSharedLibraries(user)
-    dslRW.insertSharingRestrictions(user)
+    dslContext.insertRoles(user)
+    dslContext.insertSharedLibraries(user)
+    dslContext.insertSharingRestrictions(user)
   }
 
   override fun saveAnnouncementIdsRead(
     user: KomgaUser,
     announcementIds: Set<String>,
   ) {
-    dslRW
+    dslContext
       .batch(
         announcementIds.map {
-          dslRW.insertInto(ar).values(user.id, it).onDuplicateKeyIgnore()
+          dslContext.insertInto(ar).values(user.id, it).onDuplicateKeyIgnore()
         },
       ).execute()
   }
@@ -224,29 +220,29 @@ class KomgaUserDao(
 
   @Transactional
   override fun delete(userId: String) {
-    dslRW.deleteFrom(uak).where(uak.USER_ID.equal(userId)).execute()
-    dslRW.deleteFrom(ar).where(ar.USER_ID.equal(userId)).execute()
-    dslRW.deleteFrom(us).where(us.USER_ID.equal(userId)).execute()
-    dslRW.deleteFrom(ul).where(ul.USER_ID.equal(userId)).execute()
-    dslRW.deleteFrom(ur).where(ur.USER_ID.equal(userId)).execute()
-    dslRW.deleteFrom(u).where(u.ID.equal(userId)).execute()
+    dslContext.deleteFrom(uak).where(uak.USER_ID.equal(userId)).execute()
+    dslContext.deleteFrom(ar).where(ar.USER_ID.equal(userId)).execute()
+    dslContext.deleteFrom(us).where(us.USER_ID.equal(userId)).execute()
+    dslContext.deleteFrom(ul).where(ul.USER_ID.equal(userId)).execute()
+    dslContext.deleteFrom(ur).where(ur.USER_ID.equal(userId)).execute()
+    dslContext.deleteFrom(u).where(u.ID.equal(userId)).execute()
   }
 
   @Transactional
   override fun deleteAll() {
-    dslRW.deleteFrom(uak).execute()
-    dslRW.deleteFrom(ar).execute()
-    dslRW.deleteFrom(us).execute()
-    dslRW.deleteFrom(ul).execute()
-    dslRW.deleteFrom(ur).execute()
-    dslRW.deleteFrom(u).execute()
+    dslContext.deleteFrom(uak).execute()
+    dslContext.deleteFrom(ar).execute()
+    dslContext.deleteFrom(us).execute()
+    dslContext.deleteFrom(ul).execute()
+    dslContext.deleteFrom(ur).execute()
+    dslContext.deleteFrom(u).execute()
   }
 
   override fun deleteApiKeyByIdAndUserId(
     apiKeyId: String,
     userId: String,
   ) {
-    dslRW
+    dslContext
       .deleteFrom(uak)
       .where(uak.ID.eq(apiKeyId))
       .and(uak.USER_ID.eq(userId))
@@ -254,19 +250,19 @@ class KomgaUserDao(
   }
 
   override fun deleteApiKeyByUserId(userId: String) {
-    dslRW.deleteFrom(uak).where(uak.USER_ID.eq(userId)).execute()
+    dslContext.deleteFrom(uak).where(uak.USER_ID.eq(userId)).execute()
   }
 
   override fun findAnnouncementIdsReadByUserId(userId: String): Set<String> =
-    dslRO
+    dslContext
       .select(ar.ANNOUNCEMENT_ID)
       .from(ar)
       .where(ar.USER_ID.eq(userId))
       .fetchSet(ar.ANNOUNCEMENT_ID)
 
   override fun existsByEmailIgnoreCase(email: String): Boolean =
-    dslRO.fetchExists(
-      dslRO
+    dslContext.fetchExists(
+      dslContext
         .selectFrom(u)
         .where(u.EMAIL.equalIgnoreCase(email)),
     )
@@ -274,32 +270,32 @@ class KomgaUserDao(
   override fun existsApiKeyByIdAndUserId(
     apiKeyId: String,
     userId: String,
-  ): Boolean = dslRO.fetchExists(uak, uak.ID.eq(apiKeyId).and(uak.USER_ID.eq(userId)))
+  ): Boolean = dslContext.fetchExists(uak, uak.ID.eq(apiKeyId).and(uak.USER_ID.eq(userId)))
 
   override fun existsApiKeyByCommentAndUserId(
     comment: String,
     userId: String,
-  ): Boolean = dslRO.fetchExists(uak, uak.COMMENT.equalIgnoreCase(comment).and(uak.USER_ID.eq(userId)))
+  ): Boolean = dslContext.fetchExists(uak, uak.COMMENT.equalIgnoreCase(comment).and(uak.USER_ID.eq(userId)))
 
   override fun findByEmailIgnoreCaseOrNull(email: String): KomgaUser? =
-    dslRO
+    dslContext
       .selectBase()
       .where(u.EMAIL.equalIgnoreCase(email))
-      .fetchAndMap(dslRO)
+      .fetchAndMap(dslContext)
       .firstOrNull()
 
   override fun findByApiKeyOrNull(apiKey: String): Pair<KomgaUser, ApiKey>? {
     val user =
-      dslRO
+      dslContext
         .selectBase()
         .leftJoin(uak)
         .on(u.ID.eq(uak.USER_ID))
         .where(uak.API_KEY.eq(apiKey))
-        .fetchAndMap(dslRO)
+        .fetchAndMap(dslContext)
         .firstOrNull() ?: return null
 
     val key =
-      dslRO
+      dslContext
         .selectFrom(uak)
         .where(uak.API_KEY.eq(apiKey))
         .fetchInto(uak)

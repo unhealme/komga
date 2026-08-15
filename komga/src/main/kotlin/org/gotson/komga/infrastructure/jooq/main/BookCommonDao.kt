@@ -1,7 +1,6 @@
 package org.gotson.komga.infrastructure.jooq.main
 
 import org.gotson.komga.domain.model.ContentRestrictions
-import org.gotson.komga.infrastructure.jooq.SplitDslDaoBase
 import org.gotson.komga.infrastructure.jooq.toCondition
 import org.gotson.komga.jooq.main.Tables
 import org.jooq.DSLContext
@@ -14,15 +13,13 @@ import org.jooq.impl.DSL
 import org.jooq.impl.DSL.falseCondition
 import org.jooq.impl.DSL.name
 import org.jooq.impl.DSL.select
-import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.stereotype.Component
 import java.time.LocalDateTime
 
 @Component
 class BookCommonDao(
-  dslRW: DSLContext,
-  @Qualifier("dslContextRO") dslRO: DSLContext,
-) : SplitDslDaoBase(dslRW, dslRO) {
+  val dslContext: DSLContext,
+) {
   private val b = Tables.BOOK
   private val m = Tables.MEDIA
   private val d = Tables.BOOK_METADATA
@@ -80,7 +77,7 @@ class BookCommonDao(
     val b1 = cteBooks.`as`("b1")
     val b2 = cteBooks.`as`("b2")
     val query =
-      dslRO
+      dslContext
         .with(cteSeries)
         .with(cteBooks)
         .select(*selectFields)
@@ -122,7 +119,7 @@ class BookCommonDao(
         .where(b2.field(cteBooksFieldBookId)!!.isNull)
 
     val mostRecentReadDateQuery =
-      dslRO
+      dslContext
         .with(cteSeries)
         .select(DSL.max(cteSeries.field(rs.MOST_RECENT_READ_DATE)))
         .from(cteSeries)

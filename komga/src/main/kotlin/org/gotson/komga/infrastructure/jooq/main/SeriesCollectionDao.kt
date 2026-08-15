@@ -4,7 +4,6 @@ import org.gotson.komga.domain.model.ContentRestrictions
 import org.gotson.komga.domain.model.SearchContext
 import org.gotson.komga.domain.model.SeriesCollection
 import org.gotson.komga.domain.persistence.SeriesCollectionRepository
-import org.gotson.komga.infrastructure.jooq.SplitDslDaoBase
 import org.gotson.komga.infrastructure.jooq.TempTable.Companion.withTempTable
 import org.gotson.komga.infrastructure.jooq.inOrNoCondition
 import org.gotson.komga.infrastructure.jooq.sortByValues
@@ -19,7 +18,6 @@ import org.gotson.komga.language.toCurrentTimeZone
 import org.jooq.DSLContext
 import org.jooq.Record
 import org.jooq.ResultQuery
-import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.PageImpl
@@ -33,12 +31,10 @@ import java.time.ZoneId
 
 @Component
 class SeriesCollectionDao(
-  dslRW: DSLContext,
-  @Qualifier("dslContextRO") dslRO: DSLContext,
+  val dslContext: DSLContext,
   private val luceneHelper: LuceneHelper,
   @param:Value("#{@komgaProperties.database.batchChunkSize}") private val batchSize: Int,
-) : SplitDslDaoBase(dslRW, dslRO),
-  SeriesCollectionRepository {
+) : SeriesCollectionRepository {
   private val c = Tables.COLLECTION
   private val cs = Tables.COLLECTION_SERIES
   private val s = Tables.SERIES
@@ -55,12 +51,13 @@ class SeriesCollectionDao(
     collectionId: String,
     context: SearchContext,
   ): SeriesCollection? =
-    dslRO
+    dslContext
       .selectBase(context.restrictions.isRestricted)
       .where(c.ID.eq(collectionId))
       .apply { context.libraryIds?.let { and(s.LIBRARY_ID.`in`(it)) } }
       .apply { if (context.restrictions.isRestricted) and(context.restrictions.toCondition()) }
-      .fetchAndMap(dslRO, context.libraryIds, context.restrictions)
+      .groupBy(*c.fields())
+      .fetchAndMap(dslContext, context.libraryIds, context.restrictions)
       .firstOrNull()
 
   override fun findAll(
@@ -82,7 +79,7 @@ class SeriesCollectionDao(
       if (belongsToLibraryIds == null && context.libraryIds == null && !context.restrictions.isRestricted)
         null
       else
-        dslRO
+        dslContext
           .selectDistinct(c.ID)
           .from(c)
           .leftJoin(cs)
@@ -95,9 +92,9 @@ class SeriesCollectionDao(
 
     val count =
       if (queryIds != null)
-        dslRO.fetchCount(queryIds)
+        dslContext.fetchCount(queryIds)
       else
-        dslRO.fetchCount(c, searchCondition)
+        dslContext.fetchCount(c, searchCondition)
 
     val orderBy =
       pageable.sort.mapNotNull {
@@ -108,13 +105,14 @@ class SeriesCollectionDao(
       }
 
     val items =
-      dslRO
+      dslContext
         .selectBase(context.restrictions.isRestricted)
         .where(conditions)
         .apply { if (queryIds != null) and(c.ID.`in`(queryIds)) }
+        .groupBy(*c.fields())
         .orderBy(orderBy)
         .apply { if (pageable.isPaged) limit(pageable.pageSize).offset(pageable.offset) }
-        .fetchAndMap(dslRO, context.libraryIds, context.restrictions)
+        .fetchAndMap(dslContext, context.libraryIds, context.restrictions)
 
     val pageSort = if (orderBy.isNotEmpty()) pageable.sort else Sort.unsorted()
     return PageImpl(
@@ -132,7 +130,7 @@ class SeriesCollectionDao(
     context: SearchContext,
   ): Collection<SeriesCollection> {
     val queryIds =
-      dslRO
+      dslContext
         .select(c.ID)
         .from(c)
         .leftJoin(cs)
@@ -141,20 +139,21 @@ class SeriesCollectionDao(
         .where(cs.SERIES_ID.eq(containsSeriesId))
         .apply { if (context.restrictions.isRestricted) and(context.restrictions.toCondition()) }
 
-    return dslRO
+    return dslContext
       .selectBase(context.restrictions.isRestricted)
       .where(c.ID.`in`(queryIds))
       .apply { context.libraryIds?.let { and(s.LIBRARY_ID.`in`(it)) } }
       .apply { if (context.restrictions.isRestricted) and(context.restrictions.toCondition()) }
-      .fetchAndMap(dslRO, context.libraryIds, context.restrictions)
+      .groupBy(*c.fields())
+      .fetchAndMap(dslContext, context.libraryIds, context.restrictions)
   }
 
   override fun findAllEmpty(): Collection<SeriesCollection> =
-    dslRO
+    dslContext
       .selectFrom(c)
       .where(
         c.ID.`in`(
-          dslRO
+          dslContext
             .select(c.ID)
             .from(c)
             .leftJoin(cs)
@@ -165,15 +164,16 @@ class SeriesCollectionDao(
       .map { it.toDomain(emptyList()) }
 
   override fun findByNameOrNull(name: String): SeriesCollection? =
-    dslRO
+    dslContext
       .selectBase()
       .where(c.NAME.equalIgnoreCase(name))
-      .fetchAndMap(dslRO, null)
+      .groupBy(*c.fields())
+      .fetchAndMap(dslContext, null)
       .firstOrNull()
 
   private fun DSLContext.selectBase(joinOnSeriesMetadata: Boolean = false) =
     this
-      .selectDistinct(*c.fields())
+      .select(*c.fields())
       .from(c)
       .leftJoin(cs)
       .on(c.ID.eq(cs.COLLECTION_ID))
@@ -206,7 +206,7 @@ class SeriesCollectionDao(
 
   @Transactional
   override fun insert(collection: SeriesCollection) {
-    dslRW
+    dslContext
       .insertInto(c)
       .set(c.ID, collection.id)
       .set(c.NAME, collection.name)
@@ -214,7 +214,7 @@ class SeriesCollectionDao(
       .set(c.SERIES_COUNT, collection.seriesIds.size)
       .execute()
 
-    dslRW.insertSeries(collection)
+    dslContext.insertSeries(collection)
   }
 
   private fun DSLContext.insertSeries(collection: SeriesCollection) {
@@ -230,7 +230,7 @@ class SeriesCollectionDao(
 
   @Transactional
   override fun update(collection: SeriesCollection) {
-    dslRW
+    dslContext
       .update(c)
       .set(c.NAME, collection.name)
       .set(c.ORDERED, collection.ordered)
@@ -239,14 +239,14 @@ class SeriesCollectionDao(
       .where(c.ID.eq(collection.id))
       .execute()
 
-    dslRW.deleteFrom(cs).where(cs.COLLECTION_ID.eq(collection.id)).execute()
+    dslContext.deleteFrom(cs).where(cs.COLLECTION_ID.eq(collection.id)).execute()
 
-    dslRW.insertSeries(collection)
+    dslContext.insertSeries(collection)
   }
 
   @Transactional
   override fun removeSeriesFromAll(seriesId: String) {
-    dslRW
+    dslContext
       .deleteFrom(cs)
       .where(cs.SERIES_ID.eq(seriesId))
       .execute()
@@ -254,8 +254,8 @@ class SeriesCollectionDao(
 
   @Transactional
   override fun removeSeriesFromAll(seriesIds: Collection<String>) {
-    dslRW.withTempTable(batchSize, seriesIds).use {
-      dslRW
+    dslContext.withTempTable(batchSize, seriesIds) { it, dslContext ->
+      dslContext
         .deleteFrom(cs)
         .where(cs.SERIES_ID.`in`(it.selectTempStrings()))
         .execute()
@@ -264,30 +264,30 @@ class SeriesCollectionDao(
 
   @Transactional
   override fun delete(collectionId: String) {
-    dslRW.deleteFrom(cs).where(cs.COLLECTION_ID.eq(collectionId)).execute()
-    dslRW.deleteFrom(c).where(c.ID.eq(collectionId)).execute()
+    dslContext.deleteFrom(cs).where(cs.COLLECTION_ID.eq(collectionId)).execute()
+    dslContext.deleteFrom(c).where(c.ID.eq(collectionId)).execute()
   }
 
   @Transactional
   override fun delete(collectionIds: Collection<String>) {
-    dslRW.deleteFrom(cs).where(cs.COLLECTION_ID.`in`(collectionIds)).execute()
-    dslRW.deleteFrom(c).where(c.ID.`in`(collectionIds)).execute()
+    dslContext.deleteFrom(cs).where(cs.COLLECTION_ID.`in`(collectionIds)).execute()
+    dslContext.deleteFrom(c).where(c.ID.`in`(collectionIds)).execute()
   }
 
   @Transactional
   override fun deleteAll() {
-    dslRW.deleteFrom(cs).execute()
-    dslRW.deleteFrom(c).execute()
+    dslContext.deleteFrom(cs).execute()
+    dslContext.deleteFrom(c).execute()
   }
 
   override fun existsByName(name: String): Boolean =
-    dslRO.fetchExists(
-      dslRO
+    dslContext.fetchExists(
+      dslContext
         .selectFrom(c)
         .where(c.NAME.equalIgnoreCase(name)),
     )
 
-  override fun count(): Long = dslRO.fetchCount(c).toLong()
+  override fun count(): Long = dslContext.fetchCount(c).toLong()
 
   private fun CollectionRecord.toDomain(seriesIds: List<String>) =
     SeriesCollection(
