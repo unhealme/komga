@@ -19,7 +19,7 @@ import javax.sql.DataSource
 // as advised in https://docs.spring.io/spring-boot/docs/3.1.4/reference/htmlsingle/#howto.data-access.configure-jooq-with-multiple-datasources
 @Configuration
 class KomgaJooqConfiguration {
-  @Bean("dslContext")
+  @Bean("mainDslContext")
   @Primary
   fun mainDslContext(
     dataSource: DataSource,

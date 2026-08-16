@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import io.github.oshai.kotlinlogging.KotlinLogging
 import org.gotson.komga.application.tasks.Task
 import org.gotson.komga.application.tasks.TasksRepository
+import org.gotson.komga.infrastructure.jooq.SplitDslDaoBase
 import org.gotson.komga.jooq.main.Tables
 import org.jooq.DSLContext
 import org.jooq.Query
@@ -20,10 +21,12 @@ private val logger = KotlinLogging.logger {}
 
 @Component
 class TasksDao(
-  @Qualifier("tasksDslContext") val dslContext: DSLContext,
+  @Qualifier("tasksDslContext") dslRW: DSLContext,
+  @Qualifier("mainDslContext") dslRO: DSLContext,
   @param:Value("#{@komgaProperties.database.batchChunkSize}") private val batchSize: Int,
   private val objectMapper: ObjectMapper,
-) : TasksRepository {
+) : SplitDslDaoBase(dslRW, dslRO),
+  TasksRepository {
   private val t = Tables.TASK
 
   private val tasksAvailableCondition =
@@ -40,7 +43,7 @@ class TasksDao(
       )
 
   override fun hasAvailable(): Boolean =
-    dslContext.fetchExists(
+    dslRO.fetchExists(
       t,
       tasksAvailableCondition,
     )
@@ -48,7 +51,7 @@ class TasksDao(
   @Transactional
   override fun takeFirst(owner: String): Task? {
     val task =
-      dslContext
+      dslRW
         .selectBase()
         .where(tasksAvailableCondition)
         .orderBy(t.PRIORITY.desc(), t.LAST_MODIFIED_DATE)
@@ -63,7 +66,7 @@ class TasksDao(
           }
         } ?: return null
 
-    dslContext
+    dslRW
       .update(t)
       .set(t.OWNER, owner)
       .where(t.ID.eq(task.uniqueId))
@@ -73,13 +76,13 @@ class TasksDao(
   }
 
   override fun findAll(): List<Task> =
-    dslContext
+    dslRO
       .selectBase()
       .fetch()
       .mapNotNull { it.toDomain() }
 
   override fun findAllGroupedByOwner(): Map<String?, List<Task>> =
-    dslContext
+    dslRO
       .select(t.OWNER, t.CLASS, t.PAYLOAD)
       .from(t)
       .fetch()
@@ -100,10 +103,10 @@ class TasksDao(
       null
     }
 
-  override fun count(): Int = dslContext.fetchCount(t)
+  override fun count(): Int = dslRO.fetchCount(t)
 
   override fun countBySimpleType(): Map<String, Int> =
-    dslContext
+    dslRO
       .select(t.SIMPLE_TYPE, DSL.count(t.SIMPLE_TYPE))
       .from(t)
       .groupBy(t.SIMPLE_TYPE)
@@ -111,32 +114,32 @@ class TasksDao(
       .associate { it.value1() to it.value2() }
 
   override fun save(task: Task) {
-    task.toQuery(dslContext).execute()
+    task.toQuery(dslRW).execute()
   }
 
   override fun save(tasks: Collection<Task>) {
     tasks
-      .map { it.toQuery(dslContext) }
+      .map { it.toQuery(dslRW) }
       .chunked(batchSize)
-      .forEach { chunk -> dslContext.batch(chunk).execute() }
+      .forEach { chunk -> dslRW.batch(chunk).execute() }
   }
 
   override fun disown(): Int =
-    dslContext
+    dslRW
       .update(t)
       .set(t.OWNER, null as String?)
       .where(t.OWNER.isNotNull)
       .execute()
 
   override fun delete(taskId: String) {
-    dslContext.deleteFrom(t).where(t.ID.eq(taskId)).execute()
+    dslRW.deleteFrom(t).where(t.ID.eq(taskId)).execute()
   }
 
   override fun deleteAll() {
-    dslContext.deleteFrom(t).execute()
+    dslRW.deleteFrom(t).execute()
   }
 
-  override fun deleteAllWithoutOwner(): Int = dslContext.deleteFrom(t).where(t.OWNER.isNull).execute()
+  override fun deleteAllWithoutOwner(): Int = dslRW.deleteFrom(t).where(t.OWNER.isNull).execute()
 
   private fun Task.toQuery(dsl: DSLContext): Query =
     dsl
