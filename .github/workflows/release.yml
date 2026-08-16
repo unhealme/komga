@@ -12,6 +12,22 @@ jobs:
   release:
     name: Release
     runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+        volumes:
+          - /var/run/postgresql:/var/run/postgresql
+
     steps:
       - name: Remove unnecessary files
         run: |
@@ -21,6 +37,9 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+
+      - name: Set up Database
+        run: psql -v ON_ERROR_STOP=1 -U postgres -f init-db.sql postgres
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4

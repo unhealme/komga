@@ -1,0 +1,2 @@
+CREATE USER komga WITH PASSWORD 'komga';
+CREATE DATABASE komga_dev WITH OWNER 'komga' TEMPLATE 'template0' ENCODING 'UTF8';
