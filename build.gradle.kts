@@ -165,7 +165,7 @@ jreleaser {
       continueOnError = false
       templateDirectory = rootDir.resolve("komga/docker")
       repository.active = Active.NEVER
-      buildArgs = listOf("--cache-from", "ghcr.io/praxe/komga:latest")
+      buildArgs = listOf("--cache-from", "ghcr.io/unhealme/komga:latest")
       imageNames =
         listOf(
           "komga:latest",
