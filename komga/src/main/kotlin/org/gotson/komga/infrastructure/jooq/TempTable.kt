@@ -68,13 +68,11 @@ class TempTable private constructor(
     ): R {
       return this.transactionResult { config ->
         val ctx = config.dsl()
-        block(
-          TempTable(ctx, generateName())
-            .also {
-              it.insertTempStrings(batchSize, collection)
-            },
-          ctx,
-        )
+        val tt = TempTable(ctx, generateName())
+        tt.use {
+          it.insertTempStrings(batchSize, collection)
+          block(it, ctx)
+        }
       }
     }
   }
