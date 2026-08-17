@@ -26,6 +26,7 @@ import java.math.BigDecimal
 import java.net.URL
 import java.time.LocalDateTime
 import java.time.ZoneId
+import java.time.temporal.ChronoUnit
 
 @Component
 class BookDao(
@@ -338,7 +339,7 @@ class BookDao(
                 it.name,
                 it.url,
                 it.number,
-                it.fileLastModified,
+                it.fileLastModified.truncatedTo(ChronoUnit.MILLIS),
                 it.fileSize,
                 it.fileHash,
                 it.fileHashKoreader,
@@ -369,7 +370,7 @@ class BookDao(
       .set(b.NAME, book.name)
       .set(b.URL, book.url.toString())
       .set(b.NUMBER, book.number)
-      .set(b.FILE_LAST_MODIFIED, book.fileLastModified)
+      .set(b.FILE_LAST_MODIFIED, book.fileLastModified.truncatedTo(ChronoUnit.MILLIS))
       .set(b.FILE_SIZE, book.fileSize)
       .set(b.FILE_HASH, book.fileHash)
       .set(b.FILE_HASH_KOREADER, book.fileHashKoreader)
