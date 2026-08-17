@@ -24,6 +24,7 @@ import org.springframework.transaction.annotation.Transactional
 import java.net.URL
 import java.time.LocalDateTime
 import java.time.ZoneId
+import java.time.temporal.ChronoUnit
 
 @Component
 class SeriesDao(
@@ -161,7 +162,7 @@ class SeriesDao(
       .set(s.ID, series.id)
       .set(s.NAME, series.name)
       .set(s.URL, series.url.toString())
-      .set(s.FILE_LAST_MODIFIED, series.fileLastModified)
+      .set(s.FILE_LAST_MODIFIED, series.fileLastModified.truncatedTo(ChronoUnit.MILLIS))
       .set(s.LIBRARY_ID, series.libraryId)
       .set(s.DELETED_DATE, series.deletedDate)
       .set(s.ONESHOT, series.oneshot)
@@ -176,7 +177,7 @@ class SeriesDao(
       .update(s)
       .set(s.NAME, series.name)
       .set(s.URL, series.url.toString())
-      .set(s.FILE_LAST_MODIFIED, series.fileLastModified)
+      .set(s.FILE_LAST_MODIFIED, series.fileLastModified.truncatedTo(ChronoUnit.MILLIS))
       .set(s.LIBRARY_ID, series.libraryId)
       .set(s.BOOK_COUNT, series.bookCount)
       .set(s.DELETED_DATE, series.deletedDate)
